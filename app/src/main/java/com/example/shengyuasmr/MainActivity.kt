@@ -11,6 +11,8 @@ import android.view.ScaleGestureDetector
 import android.media.MediaPlayer
 import android.net.Uri
 import android.os.Bundle
+import android.os.Handler
+import android.os.Looper
 import android.provider.DocumentsContract
 import android.view.Gravity
 import android.view.View
@@ -48,6 +50,11 @@ class MainActivity : ComponentActivity() {
     private var previewArtIndex = 0
     private var currentScreen = "library"
     private var lastBackPressedAt = 0L
+    private val progressHandler = Handler(Looper.getMainLooper())
+    private var progressBar: SeekBar? = null
+    private var elapsedLabel: TextView? = null
+    private var durationLabel: TextView? = null
+    private var resumePosition = 0
     private var folderUri: Uri? = null
     private val pickFolder = registerForActivityResult(ActivityResultContracts.OpenDocumentTree()) { uri ->
         if (uri != null) {
@@ -88,7 +95,7 @@ class MainActivity : ComponentActivity() {
             setBackgroundColor(0xFFF7F4FB.toInt())
         }
         val header = LinearLayout(this).apply { gravity = Gravity.CENTER_VERTICAL; orientation = LinearLayout.HORIZONTAL }
-        header.addView(View(this), LinearLayout.LayoutParams(0, dp(44), 1f))
+        header.addView(View(this), LinearLayout.LayoutParams(0, dp(18), 1f))
         val menu = button("☰")
         menu.setOnClickListener { showSettings() }
         header.addView(menu)
@@ -168,7 +175,7 @@ class MainActivity : ComponentActivity() {
         currentScreen = "home"
         content.removeAllViews()
         val title = label(currentFolderName, 20, 0xFF3E3552.toInt(), true)
-        title.setPadding(0, dp(22), 0, dp(8))
+        title.setPadding(0, dp(2), 0, dp(8))
         content.addView(title)
         content.addView(label(if (tracks.isEmpty()) "先导入一个作品文件夹，应用会帮你识别音频、插画和台本。" else "已识别 ${tracks.size} 条音轨 · ${artworks.size} 张插画 · ${scripts.size} 份台本", 14, 0xFF81798F.toInt()))
         val artFrame = FrameLayout(this).apply {
@@ -193,10 +200,6 @@ class MainActivity : ComponentActivity() {
             if (artworks.isNotEmpty()) showArtPreview(currentArt)
             true
         }
-        val hint = if (artworks.size > 1) "轻触切换图片 · 长按进入大图预览" else "长按进入大图预览"
-        content.addView(label(hint, 12, 0xFF81798F.toInt()).apply { gravity = Gravity.CENTER })
-        val now = label(if (currentTrack >= 0) "正在播放：${tracks[currentTrack].name}" else "选择一条音轨开始聆听", 14, 0xFF5C526F.toInt(), true)
-        now.setPadding(0, dp(12), 0, dp(8)); content.addView(now)
         renderBottomControls()
     }
 
@@ -269,19 +272,19 @@ class MainActivity : ComponentActivity() {
         val returnScreen = if (showScript) "script" else "home"
         val panel = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setPadding(dp(14), dp(8), dp(14), dp(10)); setBackgroundColor(0xFFF7F4FB.toInt()) }
         panel.addView(View(this).apply { setBackgroundColor(0xFFB9AEC8.toInt()) }, LinearLayout.LayoutParams(dp(42), dp(4)).apply { gravity = Gravity.CENTER; bottomMargin = dp(10) })
-        panel.addView(label("音轨列表（长按右侧方块拖动排序）", 17, 0xFF3E3552.toInt(), true).apply { setPadding(dp(4), 0, 0, dp(8)) })
+        panel.addView(label("音轨列表", 17, 0xFF3E3552.toInt(), true).apply { setPadding(dp(4), 0, 0, dp(8)) })
         val scroll = ScrollView(this)
         val list = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
         fun refreshRows() {
             list.removeAllViews()
             tracks.forEachIndexed { i, t ->
-                val row = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL; setPadding(0, dp(2), 0, dp(5)) }
+                val row = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL }
                 row.addView(button("${if (i == currentTrack) "▶ " else ""}${i + 1}. ${t.name}").apply {
                     gravity = Gravity.START or Gravity.CENTER_VERTICAL
                     setOnClickListener { dialog.dismiss(); currentScreen = returnScreen; playTrack(i) }
                 }, LinearLayout.LayoutParams(0, dp(48), 1f))
                 row.addView(TextView(this).apply {
-                    text = "⠿"; textSize = 20f; gravity = Gravity.CENTER; setTextColor(0xFF5C4D79.toInt()); setBackgroundColor(0xFFE8E0F1.toInt())
+                    text = "⠿"; textSize = 20f; gravity = Gravity.CENTER; setTextColor(0xFF5C4D79.toInt()); setBackgroundColor(0xFFE8E0F1.toInt()); minimumWidth = 0; minimumHeight = 0
                     setOnLongClickListener { view -> view.startDragAndDrop(android.content.ClipData.newPlainText("track-index", i.toString()), View.DragShadowBuilder(view), i, 0); true }
                     setOnDragListener { _, event ->
                         if (event.action == android.view.DragEvent.ACTION_DROP) {
@@ -294,7 +297,7 @@ class MainActivity : ComponentActivity() {
                             }
                         }; true
                     }
-                }, LinearLayout.LayoutParams(dp(48), dp(48)).apply { leftMargin = dp(6) })
+                }, LinearLayout.LayoutParams(dp(48), dp(48)))
                 list.addView(row)
             }
         }
