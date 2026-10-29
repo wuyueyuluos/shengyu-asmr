@@ -156,9 +156,13 @@ class MainActivity : ComponentActivity() {
                     tracks.clear(); tracks.addAll(work.tracks)
                     artworks.clear(); artworks.addAll(work.arts)
                     scripts.clear(); scripts.addAll(work.scripts)
-                    if (!sameWork) { currentTrack = -1; currentArt = 0 }
-                    showScript = false
-                    renderHome()
+                    if (!sameWork) {
+                        currentArt = 0
+                        val saved = readPlaybackMemory(work.folder)
+                        currentTrack = saved.first
+                        showScript = false
+                        if (currentTrack in tracks.indices) playTrack(currentTrack, saved.second) else renderHome()
+                    } else { showScript = false; renderHome() }
                 }
                 val lp = LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(8) }
                 list.addView(row, lp)
@@ -309,7 +313,7 @@ class MainActivity : ComponentActivity() {
         dialog.window?.setDimAmount(0.35f)
     }
 
-    private fun playTrack(index: Int) {
+    private fun playTrack(index: Int, startAt: Int = 0) {
         if (index !in tracks.indices) return
         try {
             player?.release()
@@ -317,9 +321,12 @@ class MainActivity : ComponentActivity() {
                 setDataSource(this@MainActivity, tracks[index].uri)
                 setOnCompletionListener { if (index < tracks.lastIndex) playTrack(index + 1) }
                 prepare()
+                if (startAt > 0) seekTo(startAt.coerceAtMost(duration))
                 start()
             }
             currentTrack = index
+            resumePosition = startAt.coerceAtLeast(0)
+            savePlaybackMemory()
             if (showScript) loadScript() else renderHome()
         } catch (e: Exception) {
             Toast.makeText(this, "无法播放此音频格式：${e.message ?: ""}", Toast.LENGTH_LONG).show()
@@ -403,6 +410,31 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun renderBottomControls() {
+        val progressRow = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setPadding(0, dp(2), 0, dp(4)) }
+        val times = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL }
+        elapsedLabel = label("0:00", 12, 0xFF81798F.toInt())
+        durationLabel = label("0:00", 12, 0xFF81798F.toInt())
+        times.addView(elapsedLabel, LinearLayout.LayoutParams(0, -2, 1f))
+        durationLabel?.gravity = Gravity.END
+        times.addView(durationLabel)
+        progressRow.addView(times)
+        progressBar = SeekBar(this).apply {
+            max = 1000
+            progress = 0
+            setPadding(0, 0, 0, 0)
+            setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
+                override fun onProgressChanged(seekBar: SeekBar?, progress: Int, fromUser: Boolean) {
+                    val p = player ?: return
+                    if (fromUser && p.duration > 0) p.seekTo((p.duration.toLong() * progress / 1000L).toInt())
+                }
+                override fun onStartTrackingTouch(seekBar: SeekBar?) {}
+                override fun onStopTrackingTouch(seekBar: SeekBar?) { savePlaybackMemory() }
+            })
+        }
+        progressRow.addView(progressBar)
+        content.addView(progressRow)
+        progressHandler.removeCallbacks(progressUpdater)
+        progressHandler.post(progressUpdater)
         val row = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER }
         fun addControl(title: String, action: () -> Unit) {
             row.addView(button(title).apply {
@@ -434,6 +466,51 @@ class MainActivity : ComponentActivity() {
             } else Toast.makeText(this, "这个作品没有台本。", Toast.LENGTH_SHORT).show()
         }
         content.addView(row)
+    }
+
+    private val progressUpdater = object : Runnable {
+        override fun run() {
+            val p = player
+            if (p != null) {
+                try {
+                    val duration = p.duration.coerceAtLeast(0)
+                    val position = p.currentPosition.coerceAtLeast(0).coerceAtMost(duration)
+                    if (progressBar?.isPressed != true) progressBar?.progress = if (duration > 0) (position.toLong() * 1000 / duration).toInt() else 0
+                    elapsedLabel?.text = formatTime(position)
+                    durationLabel?.text = formatTime(duration)
+                    resumePosition = position
+                    savePlaybackMemory()
+                } catch (_: Exception) { }
+            } else {
+                elapsedLabel?.text = "0:00"; durationLabel?.text = "0:00"; progressBar?.progress = 0
+            }
+            progressHandler.postDelayed(this, 500)
+        }
+    }
+
+    private fun formatTime(ms: Int): String {
+        val total = (ms / 1000).coerceAtLeast(0)
+        return "${total / 60}:${(total % 60).toString().padStart(2, '0')}"
+    }
+
+    private fun playbackMemoryKey(uri: Uri) = "playback_${uri.toString().hashCode()}"
+
+    private fun savePlaybackMemory() {
+        val uri = folderUri ?: return
+        val index = currentTrack
+        if (index < 0) return
+        val position = try { player?.currentPosition ?: resumePosition } catch (_: Exception) { resumePosition }
+        val key = playbackMemoryKey(uri)
+        getSharedPreferences("shengyu_playback", MODE_PRIVATE).edit()
+            .putInt(key + "_track", index)
+            .putInt(key + "_position", position.coerceAtLeast(0))
+            .apply()
+    }
+
+    private fun readPlaybackMemory(uri: Uri): Pair<Int, Int> {
+        val prefs = getSharedPreferences("shengyu_playback", MODE_PRIVATE)
+        val key = playbackMemoryKey(uri)
+        return prefs.getInt(key + "_track", -1) to prefs.getInt(key + "_position", 0)
     }
 
     private fun showArtPreview(startIndex: Int) {
@@ -580,6 +657,8 @@ class MainActivity : ComponentActivity() {
     private fun dp(v: Int) = (v * resources.displayMetrics.density).toInt()
 
     override fun onDestroy() {
+        savePlaybackMemory()
+        progressHandler.removeCallbacks(progressUpdater)
         player?.release(); player = null
         super.onDestroy()
     }
