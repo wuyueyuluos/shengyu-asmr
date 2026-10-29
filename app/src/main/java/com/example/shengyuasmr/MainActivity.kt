@@ -64,7 +64,8 @@ class MainActivity : ComponentActivity() {
         onBackPressedDispatcher.addCallback(this, object : OnBackPressedCallback(true) {
             override fun handleOnBackPressed() {
                 when (currentScreen) {
-                    "script", "tracklist" -> { showScript = false; renderHome() }
+                    "script" -> { showScript = false; renderHome() }
+                    "tracklist" -> { if (showScript) loadScript() else renderHome() }
                     "home" -> renderLibrary()
                     else -> {
                         val now = System.currentTimeMillis()
@@ -87,12 +88,11 @@ class MainActivity : ComponentActivity() {
             setBackgroundColor(0xFFF7F4FB.toInt())
         }
         val header = LinearLayout(this).apply { gravity = Gravity.CENTER_VERTICAL; orientation = LinearLayout.HORIZONTAL }
-        header.addView(label("声屿 ASMR", 24, 0xFF3E3552.toInt(), true), LinearLayout.LayoutParams(0, -2, 1f))
+        header.addView(View(this), LinearLayout.LayoutParams(0, dp(44), 1f))
         val menu = button("☰")
         menu.setOnClickListener { showSettings() }
         header.addView(menu)
         root.addView(header)
-        root.addView(label("把喜欢的声音，收进自己的小岛。", 13, 0xFF81798F.toInt()))
         content = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
         root.addView(content, LinearLayout.LayoutParams(-1, 0, 1f))
         setContentView(root)
@@ -101,10 +101,11 @@ class MainActivity : ComponentActivity() {
     private fun renderLibrary() {
         currentScreen = "library"
         content.removeAllViews()
-        content.addView(label("我的作品", 22, 0xFF3E3552.toInt(), true).apply {
-            setPadding(0, dp(20), 0, dp(10))
-        })
-        content.addView(label(if (works.isEmpty()) "还没有作品。点击下方按钮，选择一个作品文件夹导入。" else "已收藏 ${works.size} 个作品", 14, 0xFF81798F.toInt()))
+        val heading = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL; setPadding(0, dp(4), 0, dp(8)) }
+        heading.addView(label("全部作品", 22, 0xFF3E3552.toInt(), true))
+        heading.addView(label("  ${works.size}", 16, 0xFF81798F.toInt()))
+        content.addView(heading)
+        if (works.isEmpty()) content.addView(label("还没有作品。点击下方按钮，选择一个作品文件夹导入。", 14, 0xFF81798F.toInt()))
         if (works.isEmpty()) {
             val empty = TextView(this).apply {
                 text = "♫\n\n声屿还在等你的第一份声音。"
@@ -142,13 +143,14 @@ class MainActivity : ComponentActivity() {
                     }
                 })
                 row.setOnClickListener {
-                    releasePlayer()
+                    val sameWork = folderUri == work.folder
                     currentFolderName = work.title
                     folderUri = work.folder
                     tracks.clear(); tracks.addAll(work.tracks)
                     artworks.clear(); artworks.addAll(work.arts)
                     scripts.clear(); scripts.addAll(work.scripts)
-                    currentTrack = -1; currentArt = 0; showScript = false
+                    if (!sameWork) { currentTrack = -1; currentArt = 0 }
+                    showScript = false
                     renderHome()
                 }
                 val lp = LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(8) }
@@ -196,7 +198,6 @@ class MainActivity : ComponentActivity() {
         val now = label(if (currentTrack >= 0) "正在播放：${tracks[currentTrack].name}" else "选择一条音轨开始聆听", 14, 0xFF5C526F.toInt(), true)
         now.setPadding(0, dp(12), 0, dp(8)); content.addView(now)
         renderBottomControls()
-        content.addView(button("返回作品库").apply { setOnClickListener { renderLibrary() } })
     }
 
     private fun scanFolder(uri: Uri) {
@@ -259,13 +260,13 @@ class MainActivity : ComponentActivity() {
                 renderLibrary()
             }
         })
-        content.addView(button("返回作品页").apply { setOnClickListener { renderHome() } })
     }
 
     private fun showTrackList() {
         currentScreen = "tracklist"
         if (tracks.isEmpty()) { Toast.makeText(this, "请先导入作品文件夹", Toast.LENGTH_SHORT).show(); return }
         val dialog = Dialog(this)
+        val returnScreen = if (showScript) "script" else "home"
         val panel = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setPadding(dp(14), dp(8), dp(14), dp(10)); setBackgroundColor(0xFFF7F4FB.toInt()) }
         panel.addView(View(this).apply { setBackgroundColor(0xFFB9AEC8.toInt()) }, LinearLayout.LayoutParams(dp(42), dp(4)).apply { gravity = Gravity.CENTER; bottomMargin = dp(10) })
         panel.addView(label("音轨列表（长按右侧方块拖动排序）", 17, 0xFF3E3552.toInt(), true).apply { setPadding(dp(4), 0, 0, dp(8)) })
@@ -274,17 +275,17 @@ class MainActivity : ComponentActivity() {
         fun refreshRows() {
             list.removeAllViews()
             tracks.forEachIndexed { i, t ->
-                val row = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL }
+                val row = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL; setPadding(0, dp(2), 0, dp(5)) }
                 row.addView(button("${if (i == currentTrack) "▶ " else ""}${i + 1}. ${t.name}").apply {
                     gravity = Gravity.START or Gravity.CENTER_VERTICAL
-                    setOnClickListener { dialog.dismiss(); playTrack(i) }
+                    setOnClickListener { dialog.dismiss(); currentScreen = returnScreen; playTrack(i) }
                 }, LinearLayout.LayoutParams(0, dp(48), 1f))
                 row.addView(TextView(this).apply {
                     text = "⠿"; textSize = 20f; gravity = Gravity.CENTER; setTextColor(0xFF5C4D79.toInt()); setBackgroundColor(0xFFE8E0F1.toInt())
-                    setOnLongClickListener { it.startDragAndDrop(android.content.ClipData.newPlainText("track-index", i.toString()), View.DragShadowBuilder(it), it, 0); true }
+                    setOnLongClickListener { view -> view.startDragAndDrop(android.content.ClipData.newPlainText("track-index", i.toString()), View.DragShadowBuilder(view), i, 0); true }
                     setOnDragListener { _, event ->
                         if (event.action == android.view.DragEvent.ACTION_DROP) {
-                            val from = event.localState.toString().toIntOrNull()
+                            val from = event.localState as? Int
                             if (from != null && from in tracks.indices && from != i) {
                                 val moved = tracks.removeAt(from); tracks.add(i, moved)
                                 val wi = works.indexOfFirst { it.folder == folderUri }
@@ -298,8 +299,11 @@ class MainActivity : ComponentActivity() {
             }
         }
         refreshRows(); scroll.addView(list); panel.addView(scroll, LinearLayout.LayoutParams(-1, 0, 1f))
-        dialog.setContentView(panel); dialog.show(); dialog.window?.setBackgroundDrawableResource(android.R.color.transparent)
+        dialog.setContentView(panel)
+        dialog.setOnCancelListener { currentScreen = returnScreen }
+        dialog.show(); dialog.window?.setBackgroundDrawableResource(android.R.color.transparent)
         dialog.window?.setLayout(-1, (resources.displayMetrics.heightPixels * 0.46f).toInt()); dialog.window?.setGravity(Gravity.BOTTOM)
+        dialog.window?.setDimAmount(0.35f)
     }
 
     private fun playTrack(index: Int) {
@@ -313,7 +317,7 @@ class MainActivity : ComponentActivity() {
                 start()
             }
             currentTrack = index
-            renderHome()
+            if (showScript) loadScript() else renderHome()
         } catch (e: Exception) {
             Toast.makeText(this, "无法播放此音频格式：${e.message ?: ""}", Toast.LENGTH_LONG).show()
         }
