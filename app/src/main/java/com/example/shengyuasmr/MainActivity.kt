@@ -30,7 +30,12 @@ data class LocalWork(
     val folder: Uri,
     val tracks: List<LocalTrack>,
     val arts: List<Uri>,
-    val scripts: List<Uri>
+    val scripts: List<Uri>,
+    val cover: Uri? = null,
+    val cv: String = "",
+    val circle: String = "",
+    val tags: List<String> = emptyList(),
+    val favorite: Boolean = false
 )
 
 class MainActivity : ComponentActivity() {
@@ -128,27 +133,35 @@ class MainActivity : ComponentActivity() {
                 val row = LinearLayout(this).apply {
                     orientation = LinearLayout.HORIZONTAL
                     gravity = Gravity.CENTER_VERTICAL
-                    setPadding(dp(12), dp(8), dp(4), dp(8))
+                    setPadding(dp(8), dp(8), dp(4), dp(8))
                     setBackgroundColor(0xFFEDE7F5.toInt())
                 }
-                val info = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
-                info.addView(label(work.title, 17, 0xFF3E3552.toInt(), true))
-                info.addView(label("${work.tracks.size} 条音轨 · ${work.arts.size} 张插画 · ${work.scripts.size} 份台本", 12, 0xFF81798F.toInt()))
-                row.addView(info, LinearLayout.LayoutParams(0, -2, 1f))
-                row.addView(button("⋮").apply {
-                    setOnClickListener {
-                        android.app.AlertDialog.Builder(this@MainActivity)
-                            .setTitle(work.title)
-                            .setItems(arrayOf("重新扫描并更新", "从作品库删除")) { _, which ->
-                                if (which == 0) { scanningFolder = work.folder; scanFolder(work.folder) }
-                                else {
-                                    works.removeAt(index)
-                                    saveWorks()
-                                    renderLibrary()
-                                }
-                            }.setNegativeButton("取消", null).show()
-                    }
+                val coverView = ImageView(this).apply {
+                    scaleType = ImageView.ScaleType.CENTER_CROP
+                    val coverUri = work.cover ?: work.arts.firstOrNull()
+                    if (coverUri != null) try { contentResolver.openInputStream(coverUri)?.use { setImageBitmap(BitmapFactory.decodeStream(it)) } } catch (_: Exception) {}
+                    if (drawable == null) setImageResource(android.R.drawable.ic_menu_gallery)
+                }
+                row.addView(coverView, LinearLayout.LayoutParams(dp(76), dp(94)))
+                val info = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setPadding(dp(10), 0, 0, 0) }
+                info.addView(TextView(this).apply {
+                    text = work.title
+                    textSize = 16f
+                    setTextColor(0xFF3E3552.toInt())
+                    setTypeface(typeface, android.graphics.Typeface.BOLD)
+                    maxLines = 3
+                    ellipsize = android.text.TextUtils.TruncateAt.END
                 })
+                info.addView(label("${work.tracks.size} 条音轨 · ${work.arts.size} 张插画 · ${work.scripts.size} 份台本", 11, 0xFF81798F.toInt()))
+                row.addView(info, LinearLayout.LayoutParams(0, dp(94), 1f))
+                row.addView(TextView(this).apply {
+                    text = "⋮"
+                    textSize = 28f
+                    gravity = Gravity.CENTER
+                    setTextColor(0xFF5C4D79.toInt())
+                    setPadding(dp(4), 0, dp(4), 0)
+                    setOnClickListener { showWorkMenu(work) }
+                }, LinearLayout.LayoutParams(dp(28), dp(94)))
                 row.setOnClickListener {
                     val sameWork = folderUri == work.folder
                     currentFolderName = work.title
@@ -164,7 +177,7 @@ class MainActivity : ComponentActivity() {
                         if (currentTrack in tracks.indices) playTrack(currentTrack, saved.second) else renderHome()
                     } else { showScript = false; renderHome() }
                 }
-                val lp = LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(8) }
+                val lp = LinearLayout.LayoutParams(-1, dp(110)).apply { topMargin = dp(8) }
                 list.addView(row, lp)
             }
             scroll.addView(list)
@@ -205,6 +218,54 @@ class MainActivity : ComponentActivity() {
             true
         }
         renderBottomControls()
+    }
+
+    private fun showWorkMenu(work: LocalWork) {
+        val options = arrayOf("编辑", if (work.favorite) "取消收藏" else "收藏", "重新扫描并更新", "从作品库删除")
+        android.app.AlertDialog.Builder(this).setTitle(work.title).setItems(options) { _, which ->
+            when (which) {
+                0 -> showEditWork(work)
+                1 -> { val i = works.indexOfFirst { it.folder == work.folder }; if (i >= 0) { works[i] = works[i].copy(favorite = !work.favorite); saveWorks(); renderLibrary() } }
+                2 -> { scanningFolder = work.folder; scanFolder(work.folder) }
+                3 -> android.app.AlertDialog.Builder(this).setMessage("确定从作品库删除“${work.title}”？").setPositiveButton("删除") { _, _ ->
+                    works.removeAll { it.folder == work.folder }; saveWorks(); renderLibrary()
+                }.setNegativeButton("取消", null).show()
+            }
+        }.setNegativeButton("取消", null).show()
+    }
+
+    private fun showEditWork(work: LocalWork) {
+        val box = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setPadding(dp(20), dp(8), dp(20), dp(4)) }
+        fun field(hint: String, value: String) = EditText(this).apply { this.hint = hint; setText(value); singleLine = true }
+        val title = field("作品名", work.title)
+        val cv = field("CV", work.cv)
+        val circle = field("社团", work.circle)
+        val tags = field("自定义标签（用逗号分隔）", work.tags.joinToString(", "))
+        var selectedCover: Uri? = work.cover ?: work.arts.firstOrNull()
+        val coverButton = button("选择封面（当前：${selectedCover?.lastPathSegment ?: "默认插图"}）")
+        coverButton.setOnClickListener {
+            if (work.arts.isEmpty()) {
+                Toast.makeText(this, "这个作品没有插图可用作封面。", Toast.LENGTH_SHORT).show()
+            } else {
+                val names = work.arts.mapIndexed { i, uri -> "${i + 1}. ${uri.lastPathSegment ?: "插图"}" }.toTypedArray()
+                android.app.AlertDialog.Builder(this).setTitle("选择封面").setItems(names) { _, index ->
+                    selectedCover = work.arts[index]
+                    coverButton.text = "选择封面（当前：${names[index]}）"
+                }.setNegativeButton("取消", null).show()
+            }
+        }
+        box.addView(title); box.addView(coverButton); box.addView(cv); box.addView(circle); box.addView(tags)
+        android.app.AlertDialog.Builder(this).setTitle("编辑作品信息").setView(ScrollView(this).apply { addView(box) })
+            .setPositiveButton("保存") { _, _ ->
+                val i = works.indexOfFirst { it.folder == work.folder }
+                if (i >= 0) {
+                    val coverUri = selectedCover ?: work.arts.firstOrNull()
+                    works[i] = works[i].copy(title = title.text.toString().trim().ifBlank { work.title }, cover = coverUri,
+                        cv = cv.text.toString().trim(), circle = circle.text.toString().trim(),
+                        tags = tags.text.toString().split(",").map { it.trim() }.filter { it.isNotBlank() })
+                    saveWorks(); renderLibrary()
+                }
+            }.setNegativeButton("取消", null).show()
     }
 
     private fun scanFolder(uri: Uri) {
@@ -257,7 +318,9 @@ class MainActivity : ComponentActivity() {
                     Toast.makeText(this@MainActivity, "没有获取到文件夹，请重新选择。", Toast.LENGTH_SHORT).show()
                     return@setOnClickListener
                 }
-                val work = LocalWork(currentFolderName, targetFolder, chosenTracks, chosenArts, chosenScripts)
+                val previous = works.firstOrNull { it.folder.toString() == targetFolder.toString() }
+                val work = LocalWork(currentFolderName, targetFolder, chosenTracks, chosenArts, chosenScripts,
+                    previous?.cover ?: chosenArts.firstOrNull(), previous?.cv ?: "", previous?.circle ?: "", previous?.tags ?: emptyList(), previous?.favorite ?: false)
                 val existing = works.indexOfFirst { it.folder.toString() == targetFolder.toString() }
                 if (existing >= 0) works[existing] = work else works.add(work)
                 saveWorks()
@@ -283,8 +346,10 @@ class MainActivity : ComponentActivity() {
             list.removeAllViews()
             tracks.forEachIndexed { i, t ->
                 val row = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL }
+                val rowLp = LinearLayout.LayoutParams(-1, dp(48)).apply { bottomMargin = dp(6) }
                 row.addView(button("${if (i == currentTrack) "▶ " else ""}${i + 1}. ${t.name}").apply {
                     gravity = Gravity.START or Gravity.CENTER_VERTICAL
+                    setPadding(dp(10), 0, dp(2), 0)
                     setOnClickListener { dialog.dismiss(); currentScreen = returnScreen; playTrack(i) }
                 }, LinearLayout.LayoutParams(0, dp(48), 1f))
                 row.addView(TextView(this).apply {
@@ -302,7 +367,7 @@ class MainActivity : ComponentActivity() {
                         }; true
                     }
                 }, LinearLayout.LayoutParams(dp(48), dp(48)))
-                list.addView(row)
+                list.addView(row, rowLp)
             }
         }
         refreshRows(); scroll.addView(list); panel.addView(scroll, LinearLayout.LayoutParams(-1, 0, 1f))
@@ -600,6 +665,11 @@ class MainActivity : ComponentActivity() {
             val obj = JSONObject()
             obj.put("title", w.title)
             obj.put("folder", w.folder.toString())
+            obj.put("cover", w.cover?.toString() ?: "")
+            obj.put("cv", w.cv)
+            obj.put("circle", w.circle)
+            obj.put("tags", JSONArray(w.tags))
+            obj.put("favorite", w.favorite)
             fun putTracks(key: String, items: List<LocalTrack>) {
                 val a = JSONArray()
                 items.forEach { t -> a.put(JSONObject().put("name", t.name).put("uri", t.uri.toString())) }
@@ -640,7 +710,12 @@ class MainActivity : ComponentActivity() {
                     Uri.parse(obj.getString("folder")),
                     savedTracks,
                     readUris("arts"),
-                    readUris("scripts")
+                    readUris("scripts"),
+                    obj.optString("cover", "").takeIf { it.isNotBlank() }?.let { Uri.parse(it) },
+                    obj.optString("cv", ""),
+                    obj.optString("circle", ""),
+                    (0 until (obj.optJSONArray("tags")?.length() ?: 0)).map { obj.optJSONArray("tags")!!.optString(it) },
+                    obj.optBoolean("favorite", false)
                 ))
             }
         } catch (_: Exception) {
