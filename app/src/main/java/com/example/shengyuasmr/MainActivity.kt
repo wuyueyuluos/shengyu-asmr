@@ -3,6 +3,10 @@ package com.example.shengyuasmr
 import android.app.Activity
 import android.content.Intent
 import android.graphics.BitmapFactory
+import android.graphics.pdf.PdfRenderer
+import android.app.Dialog
+import android.view.MotionEvent
+import android.view.ScaleGestureDetector
 import android.media.MediaPlayer
 import android.net.Uri
 import android.os.Bundle
@@ -39,6 +43,7 @@ class MainActivity : ComponentActivity() {
     private var showScript = false
     private var currentFolderName = "还没有导入作品"
     private var currentScriptText = ""
+    private var previewArtIndex = 0
     private var folderUri: Uri? = null
     private val pickFolder = registerForActivityResult(ActivityResultContracts.OpenDocumentTree()) { uri ->
         if (uri != null) {
@@ -154,32 +159,21 @@ class MainActivity : ComponentActivity() {
         artFrame.addView(art, FrameLayout.LayoutParams(-1, -1))
         val artLp = LinearLayout.LayoutParams(-1, 0, 1f).apply { topMargin = dp(18); bottomMargin = dp(14) }
         content.addView(artFrame, artLp)
-        artFrame.setOnClickListener {
-            if (scripts.isNotEmpty()) {
-                showScript = !showScript
-                if (showScript) loadScript() else renderHome()
-            } else if (artworks.size > 1) {
+        art.setOnClickListener {
+            if (artworks.size > 1) {
                 currentArt = (currentArt + 1) % artworks.size
                 renderHome()
             }
         }
-        val hint = if (scripts.isNotEmpty()) "轻触插画切换台本 / 插画" else if (artworks.size > 1) "轻触切换下一张插画" else "作品插画预览"
+        art.setOnLongClickListener {
+            if (artworks.isNotEmpty()) showArtPreview(currentArt)
+            true
+        }
+        val hint = if (artworks.size > 1) "轻触切换图片 · 长按进入大图预览" else "长按进入大图预览"
         content.addView(label(hint, 12, 0xFF81798F.toInt()).apply { gravity = Gravity.CENTER })
         val now = label(if (currentTrack >= 0) "正在播放：${tracks[currentTrack].name}" else "选择一条音轨开始聆听", 14, 0xFF5C526F.toInt(), true)
         now.setPadding(0, dp(12), 0, dp(8)); content.addView(now)
-        val controls = LinearLayout(this).apply { gravity = Gravity.CENTER; orientation = LinearLayout.HORIZONTAL }
-        controls.addView(button("曲目").apply { setOnClickListener { showTrackList() } })
-        controls.addView(button("上一首").apply { setOnClickListener { playTrack((currentTrack - 1).coerceAtLeast(0)) } })
-        controls.addView(button(if (player?.isPlaying == true) "暂停" else "播放").apply {
-            setOnClickListener {
-                if (player?.isPlaying == true) { player?.pause(); renderHome() }
-                else if (currentTrack >= 0) { player?.start(); renderHome() }
-                else if (tracks.isNotEmpty()) playTrack(0)
-            }
-        })
-        controls.addView(button("下一首").apply { setOnClickListener { playTrack((currentTrack + 1).coerceAtMost(tracks.lastIndex)) } })
-        controls.addView(button("音量").apply { setOnClickListener { showVolume() } })
-        content.addView(controls)
+        renderBottomControls()
         content.addView(button("返回作品库").apply { setOnClickListener { renderLibrary() } })
     }
 
