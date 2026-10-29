@@ -16,6 +16,7 @@ import android.view.Gravity
 import android.view.View
 import android.widget.*
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.activity.OnBackPressedCallback
 import androidx.activity.ComponentActivity
 import androidx.documentfile.provider.DocumentFile
 import org.json.JSONArray
@@ -45,6 +46,8 @@ class MainActivity : ComponentActivity() {
     private var currentFolderName = "还没有导入作品"
     private var currentScriptText = ""
     private var previewArtIndex = 0
+    private var currentScreen = "library"
+    private var lastBackPressedAt = 0L
     private var folderUri: Uri? = null
     private val pickFolder = registerForActivityResult(ActivityResultContracts.OpenDocumentTree()) { uri ->
         if (uri != null) {
@@ -58,6 +61,22 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         buildShell()
         loadWorks()
+        onBackPressedDispatcher.addCallback(this, object : OnBackPressedCallback(true) {
+            override fun handleOnBackPressed() {
+                when (currentScreen) {
+                    "script", "tracklist" -> { showScript = false; renderHome() }
+                    "home" -> renderLibrary()
+                    else -> {
+                        val now = System.currentTimeMillis()
+                        if (now - lastBackPressedAt < 2000) finish()
+                        else {
+                            lastBackPressedAt = now
+                            Toast.makeText(this@MainActivity, "再按一次返回键退出声屿", Toast.LENGTH_SHORT).show()
+                        }
+                    }
+                }
+            }
+        })
         renderLibrary()
     }
 
@@ -80,7 +99,7 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun renderLibrary() {
-        releasePlayer()
+        currentScreen = "library"
         content.removeAllViews()
         content.addView(label("我的作品", 22, 0xFF3E3552.toInt(), true).apply {
             setPadding(0, dp(20), 0, dp(10))
@@ -123,6 +142,7 @@ class MainActivity : ComponentActivity() {
                     }
                 })
                 row.setOnClickListener {
+                    releasePlayer()
                     currentFolderName = work.title
                     folderUri = work.folder
                     tracks.clear(); tracks.addAll(work.tracks)
@@ -143,6 +163,7 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun renderHome() {
+        currentScreen = "home"
         content.removeAllViews()
         val title = label(currentFolderName, 20, 0xFF3E3552.toInt(), true)
         title.setPadding(0, dp(22), 0, dp(8))
@@ -242,6 +263,7 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun showTrackList() {
+        currentScreen = "tracklist"
         if (tracks.isEmpty()) { Toast.makeText(this, "请先导入作品文件夹", Toast.LENGTH_SHORT).show(); return }
         content.removeAllViews()
         content.addView(label("曲目列表", 22, 0xFF3E3552.toInt(), true))
@@ -275,6 +297,7 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun loadScript() {
+        currentScreen = "script"
         if (scripts.isEmpty()) {
             Toast.makeText(this, "这个作品没有导入台本。", Toast.LENGTH_SHORT).show()
             showScript = false
@@ -312,7 +335,8 @@ class MainActivity : ComponentActivity() {
             }
         } else {
             try {
-                currentScriptText = contentResolver.openInputStream(uri)?.bufferedReader(Charsets.UTF_8)?.use { it.readText() } ?: ""
+                val bytes = contentResolver.openInputStream(uri)?.use { it.readBytes() } ?: byteArrayOf()
+                currentScriptText = decodeScriptText(bytes)
             } catch (_: Exception) { currentScriptText = "暂时无法读取这份台本。" }
             body.addView(TextView(this).apply {
                 text = currentScriptText
@@ -323,6 +347,29 @@ class MainActivity : ComponentActivity() {
             })
         }
         renderBottomControls()
+    }
+
+    private fun decodeScriptText(bytes: ByteArray): String {
+        if (bytes.isEmpty()) return ""
+        if (bytes.size >= 3 && bytes[0] == 0xEF.toByte() && bytes[1] == 0xBB.toByte() && bytes[2] == 0xBF.toByte())
+            return String(bytes, 3, bytes.size - 3, Charsets.UTF_8)
+        if (bytes.size >= 2 && bytes[0] == 0xFF.toByte() && bytes[1] == 0xFE.toByte())
+            return String(bytes, 2, bytes.size - 2, Charsets.UTF_16LE)
+        if (bytes.size >= 2 && bytes[0] == 0xFE.toByte() && bytes[1] == 0xFF.toByte())
+            return String(bytes, 2, bytes.size - 2, Charsets.UTF_16BE)
+        val utf8 = String(bytes, Charsets.UTF_8)
+        val suspicious = utf8.contains('\uFFFD') ||
+            listOf("縺", "繧", "譁", "蜿", "繝", "莠", "螟", "譛").any { utf8.contains(it) }
+        if (!suspicious) return utf8
+        for (name in listOf("Shift_JIS", "windows-31j", "EUC-JP", "ISO-2022-JP")) {
+            try {
+                val decoded = String(bytes, java.nio.charset.Charset.forName(name))
+                val japaneseChars = decoded.count { it in '\u3040'..'\u30FF' || it in '\u4E00'..'\u9FFF' }
+                val replacementChars = decoded.count { it == '\uFFFD' }
+                if (japaneseChars > 0 && replacementChars == 0) return decoded
+            } catch (_: Exception) { }
+        }
+        return utf8
     }
 
     private fun renderBottomControls() {
