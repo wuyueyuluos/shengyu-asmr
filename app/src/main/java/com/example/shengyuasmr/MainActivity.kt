@@ -179,7 +179,9 @@ class MainActivity : ComponentActivity() {
         })
         controls.addView(button("下一首").apply { setOnClickListener { playTrack((currentTrack + 1).coerceAtMost(tracks.lastIndex)) } })
         controls.addView(button("音量").apply { setOnClickListener { showVolume() } })
-        content.addView(controls)\n        content.addView(button("返回作品库").apply { setOnClickListener { renderLibrary() } })\n    }\n\n    private fun scanFolder(uri: Uri) {\n        tracks.clear(); artworks.clear(); scripts.clear()\n        val folder = DocumentFile.fromTreeUri(this, uri)
+        content.addView(controls)\n        content.addView(button("返回作品库").apply { setOnClickListener { renderLibrary() } })\n    }\n\n    private fun scanFolder(uri: Uri) {
+        tracks.clear(); artworks.clear(); scripts.clear()
+        val folder = DocumentFile.fromTreeUri(this, uri)
         currentFolderName = folder?.name ?: "已选文件夹"
         fun walk(dir: DocumentFile) {
             dir.listFiles().forEach { f ->
