@@ -3,6 +3,7 @@ package com.example.shengyuasmr
 import android.app.Activity
 import android.content.Intent
 import android.graphics.BitmapFactory
+import android.graphics.Bitmap
 import android.graphics.pdf.PdfRenderer
 import android.app.Dialog
 import android.view.MotionEvent
