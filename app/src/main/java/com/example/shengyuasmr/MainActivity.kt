@@ -265,18 +265,41 @@ class MainActivity : ComponentActivity() {
     private fun showTrackList() {
         currentScreen = "tracklist"
         if (tracks.isEmpty()) { Toast.makeText(this, "请先导入作品文件夹", Toast.LENGTH_SHORT).show(); return }
-        content.removeAllViews()
-        content.addView(label("曲目列表", 22, 0xFF3E3552.toInt(), true))
+        val dialog = Dialog(this)
+        val panel = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setPadding(dp(14), dp(8), dp(14), dp(10)); setBackgroundColor(0xFFF7F4FB.toInt()) }
+        panel.addView(View(this).apply { setBackgroundColor(0xFFB9AEC8.toInt()) }, LinearLayout.LayoutParams(dp(42), dp(4)).apply { gravity = Gravity.CENTER; bottomMargin = dp(10) })
+        panel.addView(label("音轨列表（长按右侧方块拖动排序）", 17, 0xFF3E3552.toInt(), true).apply { setPadding(dp(4), 0, 0, dp(8)) })
         val scroll = ScrollView(this)
         val list = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
-        tracks.forEachIndexed { i, t ->
-            val b = button("${if (i == currentTrack) "▶ " else ""}${i + 1}. ${t.name}")
-            b.gravity = Gravity.START or Gravity.CENTER_VERTICAL
-            b.setOnClickListener { playTrack(i) }
-            list.addView(b)
+        fun refreshRows() {
+            list.removeAllViews()
+            tracks.forEachIndexed { i, t ->
+                val row = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL }
+                row.addView(button("${if (i == currentTrack) "▶ " else ""}${i + 1}. ${t.name}").apply {
+                    gravity = Gravity.START or Gravity.CENTER_VERTICAL
+                    setOnClickListener { dialog.dismiss(); playTrack(i) }
+                }, LinearLayout.LayoutParams(0, dp(48), 1f))
+                row.addView(TextView(this).apply {
+                    text = "⠿"; textSize = 20f; gravity = Gravity.CENTER; setTextColor(0xFF5C4D79.toInt()); setBackgroundColor(0xFFE8E0F1.toInt())
+                    setOnLongClickListener { it.startDragAndDrop(android.content.ClipData.newPlainText("track-index", i.toString()), View.DragShadowBuilder(it), it, 0); true }
+                    setOnDragListener { _, event ->
+                        if (event.action == android.view.DragEvent.ACTION_DROP) {
+                            val from = event.localState.toString().toIntOrNull()
+                            if (from != null && from in tracks.indices && from != i) {
+                                val moved = tracks.removeAt(from); tracks.add(i, moved)
+                                val wi = works.indexOfFirst { it.folder == folderUri }
+                                if (wi >= 0) { works[wi] = works[wi].copy(tracks = tracks.toList()); saveWorks() }
+                                refreshRows()
+                            }
+                        }; true
+                    }
+                }, LinearLayout.LayoutParams(dp(48), dp(48)).apply { leftMargin = dp(6) })
+                list.addView(row)
+            }
         }
-        scroll.addView(list); content.addView(scroll, LinearLayout.LayoutParams(-1, 0, 1f))
-        content.addView(button("返回作品页").apply { setOnClickListener { renderHome() } })
+        refreshRows(); scroll.addView(list); panel.addView(scroll, LinearLayout.LayoutParams(-1, 0, 1f))
+        dialog.setContentView(panel); dialog.show(); dialog.window?.setBackgroundDrawableResource(android.R.color.transparent)
+        dialog.window?.setLayout(-1, (resources.displayMetrics.heightPixels * 0.46f).toInt()); dialog.window?.setGravity(Gravity.BOTTOM)
     }
 
     private fun playTrack(index: Int) {
