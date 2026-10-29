@@ -3,6 +3,11 @@ package com.example.shengyuasmr
 import android.app.Activity
 import android.content.Intent
 import android.graphics.BitmapFactory
+import android.graphics.Bitmap
+import android.graphics.pdf.PdfRenderer
+import android.app.Dialog
+import android.view.MotionEvent
+import android.view.ScaleGestureDetector
 import android.media.MediaPlayer
 import android.net.Uri
 import android.os.Bundle
@@ -39,6 +44,7 @@ class MainActivity : ComponentActivity() {
     private var showScript = false
     private var currentFolderName = "还没有导入作品"
     private var currentScriptText = ""
+    private var previewArtIndex = 0
     private var folderUri: Uri? = null
     private val pickFolder = registerForActivityResult(ActivityResultContracts.OpenDocumentTree()) { uri ->
         if (uri != null) {
@@ -154,32 +160,21 @@ class MainActivity : ComponentActivity() {
         artFrame.addView(art, FrameLayout.LayoutParams(-1, -1))
         val artLp = LinearLayout.LayoutParams(-1, 0, 1f).apply { topMargin = dp(18); bottomMargin = dp(14) }
         content.addView(artFrame, artLp)
-        artFrame.setOnClickListener {
-            if (scripts.isNotEmpty()) {
-                showScript = !showScript
-                if (showScript) loadScript() else renderHome()
-            } else if (artworks.size > 1) {
+        art.setOnClickListener {
+            if (artworks.size > 1) {
                 currentArt = (currentArt + 1) % artworks.size
                 renderHome()
             }
         }
-        val hint = if (scripts.isNotEmpty()) "轻触插画切换台本 / 插画" else if (artworks.size > 1) "轻触切换下一张插画" else "作品插画预览"
+        art.setOnLongClickListener {
+            if (artworks.isNotEmpty()) showArtPreview(currentArt)
+            true
+        }
+        val hint = if (artworks.size > 1) "轻触切换图片 · 长按进入大图预览" else "长按进入大图预览"
         content.addView(label(hint, 12, 0xFF81798F.toInt()).apply { gravity = Gravity.CENTER })
         val now = label(if (currentTrack >= 0) "正在播放：${tracks[currentTrack].name}" else "选择一条音轨开始聆听", 14, 0xFF5C526F.toInt(), true)
         now.setPadding(0, dp(12), 0, dp(8)); content.addView(now)
-        val controls = LinearLayout(this).apply { gravity = Gravity.CENTER; orientation = LinearLayout.HORIZONTAL }
-        controls.addView(button("曲目").apply { setOnClickListener { showTrackList() } })
-        controls.addView(button("上一首").apply { setOnClickListener { playTrack((currentTrack - 1).coerceAtLeast(0)) } })
-        controls.addView(button(if (player?.isPlaying == true) "暂停" else "播放").apply {
-            setOnClickListener {
-                if (player?.isPlaying == true) { player?.pause(); renderHome() }
-                else if (currentTrack >= 0) { player?.start(); renderHome() }
-                else if (tracks.isNotEmpty()) playTrack(0)
-            }
-        })
-        controls.addView(button("下一首").apply { setOnClickListener { playTrack((currentTrack + 1).coerceAtMost(tracks.lastIndex)) } })
-        controls.addView(button("音量").apply { setOnClickListener { showVolume() } })
-        content.addView(controls)
+        renderBottomControls()
         content.addView(button("返回作品库").apply { setOnClickListener { renderLibrary() } })
     }
 
@@ -194,7 +189,7 @@ class MainActivity : ComponentActivity() {
                     when (n.substringAfterLast('.', "").lowercase()) {
                         "mp3", "m4a", "aac", "wav", "ogg", "flac" -> tracks.add(LocalTrack(n, f.uri))
                         "jpg", "jpeg", "png", "webp", "gif" -> artworks.add(f.uri)
-                        "txt", "lrc", "srt" -> scripts.add(f.uri)
+                        "txt", "lrc", "srt", "pdf" -> scripts.add(f.uri)
                     }
                 }
             }
@@ -219,7 +214,7 @@ class MainActivity : ComponentActivity() {
         }
         addGroup("音频", tracks.map { it.name to it.uri })
         addGroup("插画", artworks.map { (it.lastPathSegment ?: "插画") to it })
-        addGroup("台本（TXT / LRC / SRT）", scripts.map { (it.lastPathSegment ?: "台本") to it })
+        addGroup("台本（TXT / LRC / SRT / PDF）", scripts.map { (it.lastPathSegment ?: "台本") to it })
         scroll.addView(list)
         content.addView(scroll, LinearLayout.LayoutParams(-1, 0, 1f))
         content.addView(button("导入所选文件").apply {
@@ -280,22 +275,135 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun loadScript() {
-        if (scripts.isEmpty()) return
-        try {
-            currentScriptText = contentResolver.openInputStream(scripts.first())?.bufferedReader(Charsets.UTF_8)?.use { it.readText() } ?: ""
-        } catch (_: Exception) { currentScriptText = "暂时无法读取这份台本。" }
+        if (scripts.isEmpty()) {
+            Toast.makeText(this, "这个作品没有导入台本。", Toast.LENGTH_SHORT).show()
+            showScript = false
+            renderHome()
+            return
+        }
         content.removeAllViews()
         content.addView(label("台本", 22, 0xFF3E3552.toInt(), true))
-        val tv = TextView(this).apply {
-            text = currentScriptText
-            textSize = 16f
-            setTextColor(0xFF4C435B.toInt())
-            setLineSpacing(dp(5).toFloat(), 1.05f)
-            setPadding(dp(8), dp(12), dp(8), dp(12))
+        val scroll = ScrollView(this)
+        val body = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
+        scroll.addView(body)
+        content.addView(scroll, LinearLayout.LayoutParams(-1, 0, 1f))
+        val uri = scripts.first()
+        if ((uri.lastPathSegment ?: "").substringAfterLast('.', "").lowercase() == "pdf") {
+            try {
+                contentResolver.openFileDescriptor(uri, "r")!!.use { fd ->
+                    PdfRenderer(fd).use { renderer ->
+                        for (i in 0 until renderer.pageCount) {
+                            renderer.openPage(i).use { page ->
+                                val w = (resources.displayMetrics.widthPixels - dp(36)).coerceAtLeast(1)
+                                val h = (w.toFloat() * page.height / page.width).toInt().coerceAtLeast(1)
+                                val bitmap = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888)
+                                page.render(bitmap, null, null, PdfRenderer.Page.RENDER_MODE_FOR_DISPLAY)
+                                body.addView(ImageView(this).apply {
+                                    setImageBitmap(bitmap)
+                                    adjustViewBounds = true
+                                    scaleType = ImageView.ScaleType.FIT_CENTER
+                                })
+                            }
+                        }
+                    }
+                }
+            } catch (e: Exception) {
+                body.addView(label("PDF 无法打开：${e.message ?: "未知错误"}", 15, 0xFF81798F.toInt()))
+            }
+        } else {
+            try {
+                currentScriptText = contentResolver.openInputStream(uri)?.bufferedReader(Charsets.UTF_8)?.use { it.readText() } ?: ""
+            } catch (_: Exception) { currentScriptText = "暂时无法读取这份台本。" }
+            body.addView(TextView(this).apply {
+                text = currentScriptText
+                textSize = 16f
+                setTextColor(0xFF4C435B.toInt())
+                setLineSpacing(dp(5).toFloat(), 1.05f)
+                setPadding(dp(8), dp(12), dp(8), dp(12))
+            })
         }
-        val sc = ScrollView(this); sc.addView(tv)
-        content.addView(sc, LinearLayout.LayoutParams(-1, 0, 1f))
-        content.addView(button("返回插画").apply { setOnClickListener { showScript = false; renderHome() } })
+        renderBottomControls()
+    }
+
+    private fun renderBottomControls() {
+        val row = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER }
+        fun addControl(title: String, action: () -> Unit) {
+            row.addView(button(title).apply {
+                textSize = 11f
+                minWidth = 0
+                setPadding(dp(2), dp(4), dp(2), dp(4))
+                setOnClickListener { action() }
+            }, LinearLayout.LayoutParams(0, -2, 1f))
+        }
+        addControl("音轨列表") { showTrackList() }
+        addControl("倒退 15秒") { player?.let { it.seekTo((it.currentPosition - 15000).coerceAtLeast(0)) } }
+        addControl(if (player?.isPlaying == true) "暂停" else "播放") {
+            if (player?.isPlaying == true) {
+                player?.pause()
+                if (showScript) loadScript() else renderHome()
+            } else if (currentTrack >= 0) {
+                player?.start()
+                if (showScript) loadScript() else renderHome()
+            } else if (tracks.isNotEmpty()) playTrack(0)
+        }
+        addControl("前进 15秒") { player?.let { it.seekTo((it.currentPosition + 15000).coerceAtMost(it.duration)) } }
+        addControl("台本") {
+            if (showScript) {
+                showScript = false
+                renderHome()
+            } else if (scripts.isNotEmpty()) {
+                showScript = true
+                loadScript()
+            } else Toast.makeText(this, "这个作品没有台本。", Toast.LENGTH_SHORT).show()
+        }
+        content.addView(row)
+    }
+
+    private fun showArtPreview(startIndex: Int) {
+        if (artworks.isEmpty()) return
+        var index = startIndex.coerceIn(0, artworks.lastIndex)
+        val dialog = Dialog(this)
+        val frame = FrameLayout(this).apply { setBackgroundColor(0xFF17151D.toInt()) }
+        val image = ImageView(this).apply { scaleType = ImageView.ScaleType.FIT_CENTER }
+        frame.addView(image, FrameLayout.LayoutParams(-1, -1))
+        fun displayImage() {
+            try {
+                contentResolver.openInputStream(artworks[index])?.use { image.setImageBitmap(BitmapFactory.decodeStream(it)) }
+            } catch (_: Exception) { image.setImageDrawable(null) }
+            image.scaleX = 1f
+            image.scaleY = 1f
+        }
+        var downX = 0f
+        var downY = 0f
+        var dragged = false
+        val detector = ScaleGestureDetector(this, object : ScaleGestureDetector.SimpleOnScaleGestureListener() {
+            override fun onScale(detector: ScaleGestureDetector): Boolean {
+                val factor = (image.scaleX * detector.scaleFactor).coerceIn(1f, 5f)
+                image.scaleX = factor
+                image.scaleY = factor
+                return true
+            }
+        })
+        image.setOnTouchListener { _, event ->
+            detector.onTouchEvent(event)
+            when (event.actionMasked) {
+                MotionEvent.ACTION_DOWN -> { downX = event.x; downY = event.y; dragged = false }
+                MotionEvent.ACTION_MOVE -> if (kotlin.math.abs(event.x - downX) > dp(20) || kotlin.math.abs(event.y - downY) > dp(20)) dragged = true
+                MotionEvent.ACTION_UP -> {
+                    val dx = event.x - downX
+                    if (dragged && kotlin.math.abs(dx) > dp(60) && artworks.size > 1) {
+                        index = if (dx < 0) (index + 1) % artworks.size else (index - 1 + artworks.size) % artworks.size
+                        displayImage()
+                    } else if (!dragged) dialog.dismiss()
+                }
+            }
+            true
+        }
+        displayImage()
+        dialog.setContentView(frame)
+        dialog.show()
+        dialog.window?.setBackgroundDrawableResource(android.R.color.black)
+        dialog.window?.setLayout(-1, -1)
     }
 
     private fun showVolume() {
