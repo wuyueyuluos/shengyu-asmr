@@ -13,8 +13,17 @@ import android.widget.*
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.ComponentActivity
 import androidx.documentfile.provider.DocumentFile
+import org.json.JSONArray
+import org.json.JSONObject
 
 data class LocalTrack(val name: String, val uri: Uri)
+data class LocalWork(
+    val title: String,
+    val folder: Uri,
+    val tracks: List<LocalTrack>,
+    val arts: List<Uri>,
+    val scripts: List<Uri>
+)
 
 class MainActivity : ComponentActivity() {
     private lateinit var root: LinearLayout
@@ -22,6 +31,8 @@ class MainActivity : ComponentActivity() {
     private val tracks = mutableListOf<LocalTrack>()
     private val artworks = mutableListOf<Uri>()
     private val scripts = mutableListOf<Uri>()
+    private val works = mutableListOf<LocalWork>()
+    private var scanningFolder: Uri? = null
     private var player: MediaPlayer? = null
     private var currentTrack = -1
     private var currentArt = 0
@@ -40,7 +51,8 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         buildShell()
-        renderHome()
+        loadWorks()
+        renderLibrary()
     }
 
     private fun buildShell() {
@@ -59,6 +71,69 @@ class MainActivity : ComponentActivity() {
         content = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
         root.addView(content, LinearLayout.LayoutParams(-1, 0, 1f))
         setContentView(root)
+    }
+
+    private fun renderLibrary() {
+        releasePlayer()
+        content.removeAllViews()
+        content.addView(label("我的作品", 22, 0xFF3E3552.toInt(), true).apply {
+            setPadding(0, dp(20), 0, dp(10))
+        })
+        content.addView(label(if (works.isEmpty()) "还没有作品。点击下方按钮，选择一个作品文件夹导入。" else "已收藏 ${works.size} 个作品", 14, 0xFF81798F.toInt()))
+        if (works.isEmpty()) {
+            val empty = TextView(this).apply {
+                text = "♫\n\n声屿还在等你的第一份声音。"
+                textSize = 18f
+                gravity = Gravity.CENTER
+                setTextColor(0xFF81798F.toInt())
+            }
+            content.addView(empty, LinearLayout.LayoutParams(-1, 0, 1f))
+        } else {
+            val scroll = ScrollView(this)
+            val list = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
+            works.forEachIndexed { index, work ->
+                val row = LinearLayout(this).apply {
+                    orientation = LinearLayout.HORIZONTAL
+                    gravity = Gravity.CENTER_VERTICAL
+                    setPadding(dp(12), dp(8), dp(4), dp(8))
+                    setBackgroundColor(0xFFEDE7F5.toInt())
+                }
+                val info = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
+                info.addView(label(work.title, 17, 0xFF3E3552.toInt(), true))
+                info.addView(label("${work.tracks.size} 条音轨 · ${work.arts.size} 张插画 · ${work.scripts.size} 份台本", 12, 0xFF81798F.toInt()))
+                row.addView(info, LinearLayout.LayoutParams(0, -2, 1f))
+                row.addView(button("⋮").apply {
+                    setOnClickListener {
+                        android.app.AlertDialog.Builder(this@MainActivity)
+                            .setTitle(work.title)
+                            .setItems(arrayOf("重新扫描并更新", "从作品库删除")) { _, which ->
+                                if (which == 0) { scanningFolder = work.folder; scanFolder(work.folder) }
+                                else {
+                                    works.removeAt(index)
+                                    saveWorks()
+                                    renderLibrary()
+                                }
+                            }.setNegativeButton("取消", null).show()
+                    }
+                })
+                row.setOnClickListener {
+                    currentFolderName = work.title
+                    folderUri = work.folder
+                    tracks.clear(); tracks.addAll(work.tracks)
+                    artworks.clear(); artworks.addAll(work.arts)
+                    scripts.clear(); scripts.addAll(work.scripts)
+                    currentTrack = -1; currentArt = 0; showScript = false
+                    renderHome()
+                }
+                val lp = LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(8) }
+                list.addView(row, lp)
+            }
+            scroll.addView(list)
+            content.addView(scroll, LinearLayout.LayoutParams(-1, 0, 1f))
+        }
+        content.addView(button("＋ 导入作品文件夹").apply {
+            setOnClickListener { scanningFolder = null; pickFolder.launch(null) }
+        })
     }
 
     private fun renderHome() {
@@ -105,6 +180,7 @@ class MainActivity : ComponentActivity() {
         controls.addView(button("下一首").apply { setOnClickListener { playTrack((currentTrack + 1).coerceAtMost(tracks.lastIndex)) } })
         controls.addView(button("音量").apply { setOnClickListener { showVolume() } })
         content.addView(controls)
+        content.addView(button("返回作品库").apply { setOnClickListener { renderLibrary() } })
     }
 
     private fun scanFolder(uri: Uri) {
@@ -152,11 +228,19 @@ class MainActivity : ComponentActivity() {
                 val chosenTracks = tracks.filter { chosen.contains(it.uri) }
                 val chosenArts = artworks.filter { chosen.contains(it) }
                 val chosenScripts = scripts.filter { chosen.contains(it) }
-                tracks.clear(); tracks.addAll(chosenTracks)
-                artworks.clear(); artworks.addAll(chosenArts)
-                scripts.clear(); scripts.addAll(chosenScripts)
-                currentArt = 0; currentTrack = -1; showScript = false
-                renderHome()
+                val targetFolder = scanningFolder ?: folderUri
+                if (targetFolder == null) {
+                    Toast.makeText(this@MainActivity, "没有获取到文件夹，请重新选择。", Toast.LENGTH_SHORT).show()
+                    return@setOnClickListener
+                }
+                val work = LocalWork(currentFolderName, targetFolder, chosenTracks, chosenArts, chosenScripts)
+                val existing = works.indexOfFirst { it.folder.toString() == targetFolder.toString() }
+                if (existing >= 0) works[existing] = work else works.add(work)
+                saveWorks()
+                scanningFolder = null
+                currentTrack = -1; currentArt = 0; showScript = false
+                Toast.makeText(this@MainActivity, "已加入作品库：${work.title}", Toast.LENGTH_SHORT).show()
+                renderLibrary()
             }
         })
         content.addView(button("返回作品页").apply { setOnClickListener { renderHome() } })
@@ -235,7 +319,7 @@ class MainActivity : ComponentActivity() {
     private fun showSettings() {
         android.app.AlertDialog.Builder(this)
             .setTitle("设置")
-            .setItems(arrayOf("导入作品文件夹", "重新选择文件夹")) { _, _ -> pickFolder.launch(null) }
+            .setItems(arrayOf("导入作品文件夹", "返回作品库")) { _, which -> if (which == 0) { scanningFolder = null; pickFolder.launch(null) } else renderLibrary() }
             .setNegativeButton("关闭", null).show()
     }
 
@@ -248,6 +332,66 @@ class MainActivity : ComponentActivity() {
         this.text = text; textSize = size.toFloat(); setTextColor(color)
         if (bold) setTypeface(typeface, android.graphics.Typeface.BOLD)
     }
+    private fun saveWorks() {
+        val arr = JSONArray()
+        works.forEach { w ->
+            val obj = JSONObject()
+            obj.put("title", w.title)
+            obj.put("folder", w.folder.toString())
+            fun putTracks(key: String, items: List<LocalTrack>) {
+                val a = JSONArray()
+                items.forEach { t -> a.put(JSONObject().put("name", t.name).put("uri", t.uri.toString())) }
+                obj.put(key, a)
+            }
+            fun putUris(key: String, items: List<Uri>) {
+                val a = JSONArray()
+                items.forEach { a.put(it.toString()) }
+                obj.put(key, a)
+            }
+            putTracks("tracks", w.tracks)
+            putUris("arts", w.arts)
+            putUris("scripts", w.scripts)
+            arr.put(obj)
+        }
+        getSharedPreferences("shengyu_library", MODE_PRIVATE).edit().putString("works", arr.toString()).apply()
+    }
+
+    private fun loadWorks() {
+        works.clear()
+        val raw = getSharedPreferences("shengyu_library", MODE_PRIVATE).getString("works", null) ?: return
+        try {
+            val arr = JSONArray(raw)
+            for (i in 0 until arr.length()) {
+                val obj = arr.getJSONObject(i)
+                val savedTracks = mutableListOf<LocalTrack>()
+                val ta = obj.optJSONArray("tracks") ?: JSONArray()
+                for (j in 0 until ta.length()) {
+                    val t = ta.getJSONObject(j)
+                    savedTracks.add(LocalTrack(t.getString("name"), Uri.parse(t.getString("uri"))))
+                }
+                fun readUris(key: String): List<Uri> {
+                    val a = obj.optJSONArray(key) ?: JSONArray()
+                    return (0 until a.length()).map { Uri.parse(a.getString(it)) }
+                }
+                works.add(LocalWork(
+                    obj.optString("title", "未命名作品"),
+                    Uri.parse(obj.getString("folder")),
+                    savedTracks,
+                    readUris("arts"),
+                    readUris("scripts")
+                ))
+            }
+        } catch (_: Exception) {
+            Toast.makeText(this, "旧作品库读取失败，请重新导入文件夹。", Toast.LENGTH_LONG).show()
+        }
+    }
+
+    private fun releasePlayer() {
+        try { player?.release() } catch (_: Exception) {}
+        player = null
+        currentTrack = -1
+    }
+
     private fun dp(v: Int) = (v * resources.displayMetrics.density).toInt()
 
     override fun onDestroy() {
