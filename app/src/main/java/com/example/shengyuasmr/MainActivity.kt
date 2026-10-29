@@ -221,11 +221,11 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun showWorkMenu(work: LocalWork) {
-        val options = arrayOf(if (work.favorite) "取消收藏" else "收藏", "编辑", "重新扫描并更新", "从作品库删除")
+        val options = arrayOf("编辑", if (work.favorite) "取消收藏" else "收藏", "重新扫描并更新", "从作品库删除")
         android.app.AlertDialog.Builder(this).setTitle(work.title).setItems(options) { _, which ->
             when (which) {
-                0 -> { val i = works.indexOfFirst { it.folder == work.folder }; if (i >= 0) { works[i] = works[i].copy(favorite = !work.favorite); saveWorks(); renderLibrary() } }
-                1 -> showEditWork(work)
+                0 -> showEditWork(work)
+                1 -> { val i = works.indexOfFirst { it.folder == work.folder }; if (i >= 0) { works[i] = works[i].copy(favorite = !work.favorite); saveWorks(); renderLibrary() } }
                 2 -> { scanningFolder = work.folder; scanFolder(work.folder) }
                 3 -> android.app.AlertDialog.Builder(this).setMessage("确定从作品库删除“${work.title}”？").setPositiveButton("删除") { _, _ ->
                     works.removeAll { it.folder == work.folder }; saveWorks(); renderLibrary()
@@ -241,13 +241,25 @@ class MainActivity : ComponentActivity() {
         val cv = field("CV", work.cv)
         val circle = field("社团", work.circle)
         val tags = field("自定义标签（用逗号分隔）", work.tags.joinToString(", "))
-        val cover = field("封面：留空使用第一张插图", work.cover?.toString() ?: "")
-        box.addView(title); box.addView(cover); box.addView(cv); box.addView(circle); box.addView(tags)
+        var selectedCover: Uri? = work.cover ?: work.arts.firstOrNull()
+        val coverButton = button("选择封面（当前：${selectedCover?.lastPathSegment ?: "默认插图"}）")
+        coverButton.setOnClickListener {
+            if (work.arts.isEmpty()) {
+                Toast.makeText(this, "这个作品没有插图可用作封面。", Toast.LENGTH_SHORT).show()
+            } else {
+                val names = work.arts.mapIndexed { i, uri -> "${i + 1}. ${uri.lastPathSegment ?: "插图"}" }.toTypedArray()
+                android.app.AlertDialog.Builder(this).setTitle("选择封面").setItems(names) { _, index ->
+                    selectedCover = work.arts[index]
+                    coverButton.text = "选择封面（当前：${names[index]}）"
+                }.setNegativeButton("取消", null).show()
+            }
+        }
+        box.addView(title); box.addView(coverButton); box.addView(cv); box.addView(circle); box.addView(tags)
         android.app.AlertDialog.Builder(this).setTitle("编辑作品信息").setView(ScrollView(this).apply { addView(box) })
             .setPositiveButton("保存") { _, _ ->
                 val i = works.indexOfFirst { it.folder == work.folder }
                 if (i >= 0) {
-                    val coverUri = cover.text.toString().trim().takeIf { it.isNotBlank() }?.let { Uri.parse(it) } ?: work.arts.firstOrNull()
+                    val coverUri = selectedCover ?: work.arts.firstOrNull()
                     works[i] = works[i].copy(title = title.text.toString().trim().ifBlank { work.title }, cover = coverUri,
                         cv = cv.text.toString().trim(), circle = circle.text.toString().trim(),
                         tags = tags.text.toString().split(",").map { it.trim() }.filter { it.isNotBlank() })
