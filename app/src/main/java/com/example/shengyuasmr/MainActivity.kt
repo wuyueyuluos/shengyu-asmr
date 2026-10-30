@@ -254,7 +254,6 @@ class MainActivity : ComponentActivity() {
         val editTags = button("编辑")
         top.addView(editTags, LinearLayout.LayoutParams(dp(64), dp(44)))
         panel.addView(top)
-        editTags.setOnClickListener { tagEditing = !tagEditing; editTags.text = if (tagEditing) "完成" else "编辑"; redraw(search.text.toString()) }
         val scroll = ScrollView(this)
         val list = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
         scroll.addView(list); panel.addView(scroll, LinearLayout.LayoutParams(-1, 0, 1f).apply { topMargin = dp(8); bottomMargin = dp(8) })
@@ -290,6 +289,7 @@ class MainActivity : ComponentActivity() {
                 list.addView(chips)
             }
         }
+        editTags.setOnClickListener { tagEditing = !tagEditing; editTags.text = if (tagEditing) "完成" else "编辑"; redraw(search.text.toString()) }
         search.addTextChangedListener(object : android.text.TextWatcher { override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) {}; override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) { redraw(s?.toString() ?: "") }; override fun afterTextChanged(s: android.text.Editable?) {} })
         redraw()
         panel.addView(button("应用筛选").apply { setOnClickListener { appliedTags.clear(); appliedTags.addAll(selected); libraryFilter = "标签"; dialog.dismiss(); renderLibrary() } })
