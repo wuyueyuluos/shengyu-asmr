@@ -356,7 +356,7 @@ class MainActivity : ComponentActivity() {
                             .setPositiveButton("添加") { _, _ ->
                                 val value = input.text.toString().trim()
                                 if (value.isNotBlank() && value !in catalog[group]!!) { catalog[group]!!.add(value); saveCatalog(); redraw(search.text.toString()) }
-                            }.setNegativeButton("取消", null).show()
+                            }.setNegativeButton("取消", null).showStyled()
                     }
                 }
                 header.addView(add, LinearLayout.LayoutParams(dp(44), dp(38)))
@@ -388,10 +388,10 @@ class MainActivity : ComponentActivity() {
                                         2 -> android.app.AlertDialog.Builder(this@MainActivity)
                                             .setMessage("只从标签面板目录删除“$tag”，不会修改任何作品资料。")
                                             .setPositiveButton("删除") { _, _ -> bucket.remove(tag); selected.remove(tag); appliedTags.remove(tag); saveCatalog(); redraw(search.text.toString()) }
-                                            .setNegativeButton("取消", null).show()
+                                            .setNegativeButton("取消", null).showStyled()
                                     }
                                     redraw(search.text.toString())
-                                }.setNegativeButton("取消", null).show()
+                                }.setNegativeButton("取消", null).showStyled()
                                 true
                             }
                         }
@@ -432,9 +432,9 @@ class MainActivity : ComponentActivity() {
                 2 -> { scanningFolder = work.folder; scanFolder(work.folder) }
                 3 -> android.app.AlertDialog.Builder(this).setMessage("确定从作品库删除“${work.title}”？").setPositiveButton("删除") { _, _ ->
                     works.removeAll { it.folder == work.folder }; saveWorks(); renderLibrary()
-                }.setNegativeButton("取消", null).show()
+                }.setNegativeButton("取消", null).showStyled()
             }
-        }.setNegativeButton("取消", null).show()
+        }.setNegativeButton("取消", null).showStyled()
     }
 
     private fun showEditWork(work: LocalWork) {
@@ -454,7 +454,7 @@ class MainActivity : ComponentActivity() {
                 android.app.AlertDialog.Builder(this).setTitle("选择封面").setItems(names) { _, index ->
                     selectedCover = work.arts[index]
                     coverButton.text = "选择封面（当前：${names[index]}）"
-                }.setNegativeButton("取消", null).show()
+                }.setNegativeButton("取消", null).showStyled()
             }
         }
         box.addView(label("作品名称", 12, 0xFF8A7E95.toInt(), true))
@@ -476,7 +476,7 @@ class MainActivity : ComponentActivity() {
                         tags = tags.text.toString().split(",").map { it.trim() }.filter { it.isNotBlank() })
                     saveWorks(); renderLibrary()
                 }
-            }.setNegativeButton("取消", null).show()
+            }.setNegativeButton("取消", null).showStyled()
     }
 
     private fun scanFolder(uri: Uri) {
