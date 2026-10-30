@@ -899,9 +899,17 @@ class MainActivity : ComponentActivity() {
     private fun button(text: String) = Button(this).apply {
         this.text = text; textSize = 13f; isAllCaps = false
         setTextColor(0xFF62536F.toInt())
-        setBackgroundTintList(android.content.res.ColorStateList.valueOf(0xFFEDE5F2.toInt()))
-        minHeight = dp(44)
+        backgroundTintList = null
+        background = android.graphics.drawable.GradientDrawable().apply {
+            setColor(0xFFEDE5F2.toInt())
+            cornerRadius = dp(14).toFloat()
+            setStroke(dp(1), 0xFFE4D9EB.toInt())
+        }
+        minHeight = dp(46)
+        minimumHeight = dp(46)
+        setPadding(dp(14), dp(8), dp(14), dp(8))
         elevation = dp(1).toFloat()
+        stateListAnimator = null
     }
     private fun label(text: String, size: Int, color: Int, bold: Boolean = false) = TextView(this).apply {
         this.text = text; textSize = size.toFloat(); setTextColor(color)
