@@ -245,10 +245,16 @@ class MainActivity : ComponentActivity() {
     private fun showTagFilter() {
         val groups = linkedMapOf("CV" to works.flatMap { it.cv.split(",", "，", "、") }, "社团" to works.flatMap { it.circle.split(",", "，", "、") }, "自定义" to works.flatMap { it.tags }).mapValues { it.value.map { v -> v.trim() }.filter { v -> v.isNotBlank() }.distinct() }
         val selected = appliedTags.toMutableSet()
+        var tagEditing = false
         val dialog = Dialog(this)
         val panel = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setPadding(dp(16), dp(12), dp(16), dp(14)); background = android.graphics.drawable.GradientDrawable().apply { setColor(0xF7F7F4FB.toInt()); cornerRadius = dp(22).toFloat() } }
+        val top = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL }
         val search = EditText(this).apply { hint = "搜索标签"; setSingleLine(true) }
-        panel.addView(search)
+        top.addView(search, LinearLayout.LayoutParams(0, dp(48), 1f))
+        val editTags = button("编辑")
+        top.addView(editTags, LinearLayout.LayoutParams(dp(64), dp(44)))
+        panel.addView(top)
+        editTags.setOnClickListener { tagEditing = !tagEditing; editTags.text = if (tagEditing) "完成" else "编辑"; redraw(search.text.toString()) }
         val scroll = ScrollView(this)
         val list = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
         scroll.addView(list); panel.addView(scroll, LinearLayout.LayoutParams(-1, 0, 1f).apply { topMargin = dp(8); bottomMargin = dp(8) })
@@ -258,7 +264,27 @@ class MainActivity : ComponentActivity() {
                 list.addView(label(name, 16, 0xFF514665.toInt(), true))
                 val chips = android.widget.GridLayout(this).apply { columnCount = 3 }
                 tags.filter { it.contains(q, true) }.forEach { tag ->
-                    val chip = TextView(this@MainActivity).apply { text = tag; gravity = Gravity.CENTER; textSize = 13f; setPadding(dp(8), dp(8), dp(8), dp(8)); setTextColor(if (tag in selected) -1 else 0xFF5C4D79.toInt()); background = android.graphics.drawable.GradientDrawable().apply { cornerRadius = dp(18).toFloat(); setColor(if (tag in selected) 0xFF8B78AD.toInt() else 0xFFE8E0F1.toInt()) }; setOnClickListener { if (!selected.add(tag)) selected.remove(tag); redraw(search.text.toString()) } }
+                    val chip = TextView(this@MainActivity).apply { text = tag; gravity = Gravity.CENTER; textSize = 13f; setPadding(dp(8), dp(8), dp(8), dp(8)); setTextColor(if (tag in selected) -1 else 0xFF5C4D79.toInt()); background = android.graphics.drawable.GradientDrawable().apply { cornerRadius = dp(18).toFloat(); setColor(if (tag in selected) 0xFF8B78AD.toInt() else 0xFFE8E0F1.toInt()) }; setOnClickListener { if (!tagEditing) { if (!selected.add(tag)) selected.remove(tag) }; redraw(search.text.toString()) }
+                    setOnLongClickListener {
+                        if (!tagEditing) return@setOnLongClickListener false
+                        android.app.AlertDialog.Builder(this@MainActivity)
+                            .setMessage("从所有作品信息中删除标签“" + tag + "”？")
+                            .setPositiveButton("删除") { _, _ ->
+                                works.indices.forEach { i ->
+                                    val w = works[i]
+                                    works[i] = w.copy(
+                                        cv = w.cv.split(",", "，", "、").map { it.trim() }.filter { it != tag }.joinToString(", "),
+                                        circle = w.circle.split(",", "，", "、").map { it.trim() }.filter { it != tag }.joinToString(", "),
+                                        tags = w.tags.filterNot { it.trim() == tag }
+                                    )
+                                }
+                                selected.remove(tag)
+                                appliedTags.remove(tag)
+                                saveWorks()
+                                redraw(search.text.toString())
+                            }.setNegativeButton("取消", null).show()
+                        true
+                    } }
                     chips.addView(chip, android.widget.GridLayout.LayoutParams().apply { width = 0; columnSpec = android.widget.GridLayout.spec(android.widget.GridLayout.UNDEFINED, 1f); setMargins(dp(3), dp(3), dp(3), dp(3)) })
                 }
                 list.addView(chips)
