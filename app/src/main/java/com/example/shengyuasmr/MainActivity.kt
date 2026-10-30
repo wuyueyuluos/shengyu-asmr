@@ -35,7 +35,8 @@ data class LocalWork(
     val cv: String = "",
     val circle: String = "",
     val tags: List<String> = emptyList(),
-    val favorite: Boolean = false
+    val favorite: Boolean = false,
+    val importedAt: Long = System.currentTimeMillis()
 )
 
 class MainActivity : ComponentActivity() {
@@ -55,6 +56,8 @@ class MainActivity : ComponentActivity() {
     private var previewArtIndex = 0
     private var currentScreen = "library"
     private var lastBackPressedAt = 0L
+    private var libraryFilter = "全部作品"
+    private var appliedTags = linkedSetOf<String>()
     private val progressHandler = Handler(Looper.getMainLooper())
     private var progressBar: SeekBar? = null
     private var elapsedLabel: TextView? = null
@@ -108,8 +111,9 @@ class MainActivity : ComponentActivity() {
         currentScreen = "library"
         content.removeAllViews()
         val heading = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL; setPadding(0, dp(4), 0, dp(8)) }
-        heading.addView(label("全部作品", 22, 0xFF3E3552.toInt(), true))
-        heading.addView(label("  ${works.size}", 16, 0xFF81798F.toInt()))
+        heading.addView(label(libraryFilter + "  ▾", 22, 0xFF3E3552.toInt(), true))
+        heading.addView(label("  " + filteredWorks().size, 16, 0xFF81798F.toInt()))
+        heading.setOnClickListener { showLibrarySections() }
         content.addView(heading)
         if (works.isEmpty()) content.addView(label("还没有作品。点击下方按钮，选择一个作品文件夹导入。", 14, 0xFF81798F.toInt()))
         if (works.isEmpty()) {
@@ -123,7 +127,7 @@ class MainActivity : ComponentActivity() {
         } else {
             val scroll = ScrollView(this)
             val list = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
-            works.forEachIndexed { index, work ->
+            filteredWorks().forEachIndexed { index, work ->
                 val row = LinearLayout(this).apply {
                     orientation = LinearLayout.HORIZONTAL
                     gravity = Gravity.CENTER_VERTICAL
@@ -220,6 +224,50 @@ class MainActivity : ComponentActivity() {
             true
         }
         renderBottomControls()
+    }
+
+
+    private fun filteredWorks(): List<LocalWork> {
+        return when (libraryFilter) {
+            "最近播放" -> works.sortedByDescending { getSharedPreferences("shengyu_playback", MODE_PRIVATE).getLong("last_" + it.folder.toString().hashCode(), 0L) }
+            "导入时间" -> works.sortedByDescending { it.importedAt }
+            "收藏" -> works.filter { it.favorite }
+            "标签" -> works.filter { w -> appliedTags.isNotEmpty() && appliedTags.all { it in (w.cv.split(",", "，", "、") + w.circle.split(",", "，", "、") + w.tags).map { v -> v.trim() }.filter { v -> v.isNotBlank() } } }
+            else -> works.toList()
+        }
+    }
+    private fun showLibrarySections() {
+        val choices = arrayOf("全部作品", "最近播放", "导入时间", "收藏", "标签")
+        android.app.AlertDialog.Builder(this).setTitle("作品分类").setItems(choices) { _, i ->
+            if (i == 4) showTagFilter() else { libraryFilter = choices[i]; appliedTags.clear(); renderLibrary() }
+        }.setNegativeButton("取消", null).show()
+    }
+    private fun showTagFilter() {
+        val groups = linkedMapOf("CV" to works.flatMap { it.cv.split(",", "，", "、") }, "社团" to works.flatMap { it.circle.split(",", "，", "、") }, "自定义" to works.flatMap { it.tags }).mapValues { it.value.map { v -> v.trim() }.filter { v -> v.isNotBlank() }.distinct() }
+        val selected = appliedTags.toMutableSet()
+        val dialog = Dialog(this)
+        val panel = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setPadding(dp(16), dp(12), dp(16), dp(14)); background = android.graphics.drawable.GradientDrawable().apply { setColor(0xF7F7F4FB.toInt()); cornerRadius = dp(22).toFloat() } }
+        val search = EditText(this).apply { hint = "搜索标签"; setSingleLine(true) }
+        panel.addView(search)
+        val scroll = ScrollView(this)
+        val list = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
+        scroll.addView(list); panel.addView(scroll, LinearLayout.LayoutParams(-1, 0, 1f).apply { topMargin = dp(8); bottomMargin = dp(8) })
+        fun redraw(q: String = "") {
+            list.removeAllViews()
+            groups.forEach { (name, tags) ->
+                list.addView(label(name, 16, 0xFF514665.toInt(), true))
+                val chips = android.widget.GridLayout(this).apply { columnCount = 3 }
+                tags.filter { it.contains(q, true) }.forEach { tag ->
+                    val chip = TextView(this@MainActivity).apply { text = tag; gravity = Gravity.CENTER; textSize = 13f; setPadding(dp(8), dp(8), dp(8), dp(8)); setTextColor(if (tag in selected) -1 else 0xFF5C4D79.toInt()); background = android.graphics.drawable.GradientDrawable().apply { cornerRadius = dp(18).toFloat(); setColor(if (tag in selected) 0xFF8B78AD.toInt() else 0xFFE8E0F1.toInt()) }; setOnClickListener { if (!selected.add(tag)) selected.remove(tag); redraw(search.text.toString()) } }
+                    chips.addView(chip, android.widget.GridLayout.LayoutParams().apply { width = 0; columnSpec = android.widget.GridLayout.spec(android.widget.GridLayout.UNDEFINED, 1f); setMargins(dp(3), dp(3), dp(3), dp(3)) })
+                }
+                list.addView(chips)
+            }
+        }
+        search.addTextChangedListener(object : android.text.TextWatcher { override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) {}; override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) { redraw(s?.toString() ?: "") }; override fun afterTextChanged(s: android.text.Editable?) {} })
+        redraw()
+        panel.addView(button("应用筛选").apply { setOnClickListener { appliedTags.clear(); appliedTags.addAll(selected); libraryFilter = "标签"; dialog.dismiss(); renderLibrary() } })
+        dialog.setContentView(panel); dialog.show(); dialog.window?.setBackgroundDrawableResource(android.R.color.transparent); dialog.window?.setLayout(-1, (resources.displayMetrics.heightPixels * 0.66f).toInt()); dialog.window?.setGravity(Gravity.BOTTOM); dialog.window?.setDimAmount(0.3f)
     }
 
     private fun showWorkMenu(work: LocalWork) {
@@ -322,7 +370,7 @@ class MainActivity : ComponentActivity() {
                 }
                 val previous = works.firstOrNull { it.folder.toString() == targetFolder.toString() }
                 val work = LocalWork(currentFolderName, targetFolder, chosenTracks, chosenArts, chosenScripts,
-                    previous?.cover ?: chosenArts.firstOrNull(), previous?.cv ?: "", previous?.circle ?: "", previous?.tags ?: emptyList(), previous?.favorite ?: false)
+                    previous?.cover ?: chosenArts.firstOrNull(), previous?.cv ?: "", previous?.circle ?: "", previous?.tags ?: emptyList(), previous?.favorite ?: false, previous?.importedAt ?: System.currentTimeMillis())
                 val existing = works.indexOfFirst { it.folder.toString() == targetFolder.toString() }
                 if (existing >= 0) works[existing] = work else works.add(work)
                 saveWorks()
@@ -676,6 +724,7 @@ class MainActivity : ComponentActivity() {
             obj.put("circle", w.circle)
             obj.put("tags", JSONArray(w.tags))
             obj.put("favorite", w.favorite)
+            obj.put("importedAt", w.importedAt)
             fun putTracks(key: String, items: List<LocalTrack>) {
                 val a = JSONArray()
                 items.forEach { t -> a.put(JSONObject().put("name", t.name).put("uri", t.uri.toString())) }
@@ -721,7 +770,8 @@ class MainActivity : ComponentActivity() {
                     obj.optString("cv", ""),
                     obj.optString("circle", ""),
                     (0 until (obj.optJSONArray("tags")?.length() ?: 0)).map { obj.optJSONArray("tags")!!.optString(it) },
-                    obj.optBoolean("favorite", false)
+                    obj.optBoolean("favorite", false),
+                    obj.optLong("importedAt", System.currentTimeMillis())
                 ))
             }
         } catch (_: Exception) {
