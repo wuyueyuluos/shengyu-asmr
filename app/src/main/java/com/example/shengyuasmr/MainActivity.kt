@@ -53,6 +53,7 @@ class MainActivity : ComponentActivity() {
     private var showScript = false
     private var currentFolderName = "还没有导入作品"
     private var currentScriptText = ""
+    private var scriptScrollY = 0
     private var previewArtIndex = 0
     private var currentScreen = "library"
     private var lastBackPressedAt = 0L
@@ -198,7 +199,7 @@ class MainActivity : ComponentActivity() {
         title.setPadding(0, 0, 0, dp(4))
         content.addView(title)
         content.addView(label(if (tracks.isEmpty()) "先导入一个作品文件夹，应用会帮你识别音频、插画和台本。" else "已识别 ${tracks.size} 条音轨 · ${artworks.size} 张插画 · ${scripts.size} 份台本", 14, 0xFF81798F.toInt()))
-        val artFrame = FrameLayout(this)
+        val artFrame = FrameLayout(this).apply { clipToPadding = true; clipChildren = true }
         val art = ImageView(this).apply { scaleType = ImageView.ScaleType.FIT_CENTER; setPadding(0, 0, 0, 0) }
         if (artworks.isNotEmpty()) {
             try { contentResolver.openInputStream(artworks[currentArt % artworks.size])?.use { art.setImageBitmap(BitmapFactory.decodeStream(it)) } } catch (_: Exception) {}
@@ -206,7 +207,8 @@ class MainActivity : ComponentActivity() {
             art.setImageResource(android.R.drawable.ic_menu_gallery)
         }
         artFrame.addView(art, FrameLayout.LayoutParams(-1, -1))
-        val artLp = LinearLayout.LayoutParams(-1, 0, 1f).apply {
+        val artLp = LinearLayout.LayoutParams(-1, dp(420)).apply {
+            gravity = Gravity.CENTER_HORIZONTAL
             topMargin = dp(12)
             bottomMargin = dp(6)
             marginStart = dp(-6)
@@ -557,6 +559,7 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun loadScript() {
+        val previousScrollY = if (currentScreen == "script") (content.getChildAt(0) as? ScrollView)?.scrollY ?: scriptScrollY else scriptScrollY
         currentScreen = "script"
         if (scripts.isEmpty()) {
             Toast.makeText(this, "这个作品没有导入台本。", Toast.LENGTH_SHORT).show()
@@ -605,6 +608,7 @@ class MainActivity : ComponentActivity() {
                 setPadding(dp(8), dp(12), dp(8), dp(12))
             })
         }
+        scroll.post { scroll.scrollTo(0, previousScrollY); scriptScrollY = previousScrollY }
         renderBottomControls()
     }
 
@@ -741,38 +745,88 @@ class MainActivity : ComponentActivity() {
         var index = startIndex.coerceIn(0, artworks.lastIndex)
         val dialog = Dialog(this)
         val frame = FrameLayout(this).apply { setBackgroundColor(0xFF17151D.toInt()) }
-        val image = ImageView(this).apply { scaleType = ImageView.ScaleType.FIT_CENTER }
+        val image = ImageView(this).apply { scaleType = ImageView.ScaleType.MATRIX }
         frame.addView(image, FrameLayout.LayoutParams(-1, -1))
+        val matrix = android.graphics.Matrix()
+        val rect = android.graphics.RectF()
+        var baseScale = 1f
+        var currentScale = 1f
+        fun clampMatrix() {
+            val drawable = image.drawable ?: return
+            rect.set(0f, 0f, drawable.intrinsicWidth.toFloat(), drawable.intrinsicHeight.toFloat())
+            matrix.mapRect(rect)
+            val vw = image.width.toFloat()
+            val vh = image.height.toFloat()
+            var dx = 0f
+            var dy = 0f
+            if (rect.width() <= vw) dx = vw / 2f - rect.centerX()
+            else if (rect.left > 0f) dx = -rect.left else if (rect.right < vw) dx = vw - rect.right
+            if (rect.height() <= vh) dy = vh / 2f - rect.centerY()
+            else if (rect.top > 0f) dy = -rect.top else if (rect.bottom < vh) dy = vh - rect.bottom
+            matrix.postTranslate(dx, dy)
+            image.imageMatrix = matrix
+        }
         fun displayImage() {
             try {
                 contentResolver.openInputStream(artworks[index])?.use { image.setImageBitmap(BitmapFactory.decodeStream(it)) }
             } catch (_: Exception) { image.setImageDrawable(null) }
-            image.scaleX = 1f
-            image.scaleY = 1f
+            image.post {
+                val drawable = image.drawable ?: return@post
+                val vw = image.width.toFloat()
+                val vh = image.height.toFloat()
+                if (vw <= 0f || vh <= 0f) return@post
+                baseScale = minOf(vw / drawable.intrinsicWidth, vh / drawable.intrinsicHeight)
+                currentScale = 1f
+                matrix.reset()
+                matrix.setScale(baseScale, baseScale)
+                val scaledW = drawable.intrinsicWidth * baseScale
+                val scaledH = drawable.intrinsicHeight * baseScale
+                matrix.postTranslate((vw - scaledW) / 2f, (vh - scaledH) / 2f)
+                image.imageMatrix = matrix
+            }
         }
-        var downX = 0f
-        var downY = 0f
-        var dragged = false
-        val detector = ScaleGestureDetector(this, object : ScaleGestureDetector.SimpleOnScaleGestureListener() {
+        var lastX = 0f
+        var lastY = 0f
+        var startX = 0f
+        var startY = 0f
+        var moved = false
+        val scaleDetector = ScaleGestureDetector(this, object : ScaleGestureDetector.SimpleOnScaleGestureListener() {
             override fun onScale(detector: ScaleGestureDetector): Boolean {
-                val factor = (image.scaleX * detector.scaleFactor).coerceIn(1f, 5f)
-                image.scaleX = factor
-                image.scaleY = factor
+                val factor = detector.scaleFactor
+                val next = (currentScale * factor).coerceIn(1f, 5f)
+                val applied = next / currentScale
+                matrix.postScale(applied, applied, detector.focusX, detector.focusY)
+                currentScale = next
+                clampMatrix()
+                moved = true
                 return true
             }
         })
         image.setOnTouchListener { _, event ->
-            detector.onTouchEvent(event)
+            scaleDetector.onTouchEvent(event)
             when (event.actionMasked) {
-                MotionEvent.ACTION_DOWN -> { downX = event.x; downY = event.y; dragged = false }
-                MotionEvent.ACTION_MOVE -> if (kotlin.math.abs(event.x - downX) > dp(20) || kotlin.math.abs(event.y - downY) > dp(20)) dragged = true
+                MotionEvent.ACTION_DOWN -> { lastX = event.x; lastY = event.y; startX = event.x; startY = event.y; moved = false }
+                MotionEvent.ACTION_POINTER_DOWN -> moved = true
+                MotionEvent.ACTION_MOVE -> {
+                    if (!scaleDetector.isInProgress && event.pointerCount == 1 && currentScale > 1f) {
+                        val dx = event.x - lastX
+                        val dy = event.y - lastY
+                        matrix.postTranslate(dx, dy)
+                        clampMatrix()
+                        moved = moved || kotlin.math.abs(dx) > 2f || kotlin.math.abs(dy) > 2f
+                    }
+                    lastX = event.x; lastY = event.y
+                }
                 MotionEvent.ACTION_UP -> {
-                    val dx = event.x - downX
-                    if (dragged && kotlin.math.abs(dx) > dp(60) && artworks.size > 1) {
+                    val dx = event.x - startX
+                    val dy = event.y - startY
+                    if (!moved && kotlin.math.abs(dx) < dp(12) && kotlin.math.abs(dy) < dp(12) && currentScale <= 1.01f) dialog.dismiss()
+                    else if (currentScale <= 1.01f && kotlin.math.abs(dx) > dp(60) && kotlin.math.abs(dx) > kotlin.math.abs(dy) && artworks.size > 1) {
                         index = if (dx < 0) (index + 1) % artworks.size else (index - 1 + artworks.size) % artworks.size
                         displayImage()
-                    } else if (!dragged) dialog.dismiss()
+                    }
                 }
+                MotionEvent.ACTION_POINTER_UP -> { lastX = event.x; lastY = event.y }
             }
             true
         }
