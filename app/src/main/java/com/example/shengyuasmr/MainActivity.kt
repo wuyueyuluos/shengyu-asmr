@@ -53,6 +53,7 @@ class MainActivity : ComponentActivity() {
     private var showScript = false
     private var currentFolderName = "还没有导入作品"
     private var currentScriptText = ""
+    private var selectedScriptIndex = 0
     private var scriptScrollY = 0
     private var previewArtIndex = 0
     private var currentScreen = "library"
@@ -594,56 +595,51 @@ class MainActivity : ComponentActivity() {
 
     private fun showTrackList() {
         currentScreen = "tracklist"
-        if (tracks.isEmpty()) { Toast.makeText(this, "请先导入作品文件夹", Toast.LENGTH_SHORT).show(); return }
+        if (tracks.isEmpty() && scripts.isEmpty()) { Toast.makeText(this, "这个作品没有音轨或台本", Toast.LENGTH_SHORT).show(); return }
         val dialog = Dialog(this)
         val returnScreen = if (showScript) "script" else "home"
-        val panel = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setPadding(dp(14), dp(8), dp(14), dp(10)); setBackgroundColor(0xFFF7F4FB.toInt()) }
+        var selectedTab = if (tracks.isNotEmpty()) 0 else 1
+        val panel = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setPadding(dp(14), dp(8), dp(14), dp(10)); background = android.graphics.drawable.GradientDrawable().apply { setColor(0xFFFCFBFD.toInt()); cornerRadius = dp(24).toFloat(); setStroke(dp(1), 0xFFECE7F0.toInt()) } }
         panel.addView(View(this).apply { setBackgroundColor(0xFFB9AEC8.toInt()) }, LinearLayout.LayoutParams(dp(42), dp(4)).apply { gravity = Gravity.CENTER; bottomMargin = dp(10) })
-        panel.addView(label("音轨列表", 18, 0xFF51435F.toInt(), true).apply { setPadding(dp(4), 0, 0, dp(3)) })
+        val tabs = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER }
         val scroll = ScrollView(this)
         val list = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
         fun refreshRows() {
             list.removeAllViews()
-            tracks.forEachIndexed { i, t ->
-                val isCurrent = i == currentTrack
-                val row = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL; background = android.graphics.drawable.GradientDrawable().apply { setColor(if (isCurrent) 0xFFECE4F3.toInt() else 0xFFFCFAFD.toInt()); cornerRadius = dp(13).toFloat(); setStroke(dp(1), if (isCurrent) 0xFFCDBDDE.toInt() else 0xFFEAE3F0.toInt()) } }
-                val rowLp = LinearLayout.LayoutParams(-1, dp(52)).apply { bottomMargin = dp(7) }
-                row.addView(TextView(this).apply {
-                    text = "${if (i == currentTrack) "▶ " else ""}${i + 1}. ${t.name}"
-                    textSize = 13f
-                    gravity = Gravity.START or Gravity.CENTER_VERTICAL
-                    setPadding(dp(10), 0, dp(6), 0)
-                    setTextColor(if (isCurrent) 0xFF59456F.toInt() else 0xFF6D6278.toInt())
-                    setTypeface(typeface, if (isCurrent) android.graphics.Typeface.BOLD else android.graphics.Typeface.NORMAL)
-                    maxLines = 1
-                    ellipsize = android.text.TextUtils.TruncateAt.MIDDLE
-                    elevation = dp(2).toFloat()
-                    setOnClickListener { dialog.dismiss(); currentScreen = returnScreen; playTrack(i) }
-                }, LinearLayout.LayoutParams(0, dp(48), 1f))
-                row.addView(TextView(this).apply {
-                    text = "⠿"; textSize = 20f; gravity = Gravity.CENTER; setTextColor(0xFF9487A1.toInt()); minimumWidth = 0; minimumHeight = 0
-                    setOnLongClickListener { view -> view.startDragAndDrop(android.content.ClipData.newPlainText("track-index", i.toString()), View.DragShadowBuilder(view), i, 0); true }
-                    setOnDragListener { _, event ->
-                        if (event.action == android.view.DragEvent.ACTION_DROP) {
-                            val from = event.localState as? Int
-                            if (from != null && from in tracks.indices && from != i) {
-                                val moved = tracks.removeAt(from); tracks.add(i, moved)
-                                val wi = works.indexOfFirst { it.folder == folderUri }
-                                if (wi >= 0) { works[wi] = works[wi].copy(tracks = tracks.toList()); saveWorks() }
-                                refreshRows()
-                            }
-                        }; true
-                    }
-                }, LinearLayout.LayoutParams(dp(48), dp(48)))
-                list.addView(row, rowLp)
+            if (selectedTab == 0) {
+                tracks.forEachIndexed { i, track ->
+                    val active = i == currentTrack
+                    val row = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL; background = android.graphics.drawable.GradientDrawable().apply { setColor(if (active) 0xFFF1ECF8.toInt() else android.graphics.Color.TRANSPARENT); cornerRadius = dp(18).toFloat() } }
+                    row.addView(TextView(this).apply { text = (if (active) "▶  " else "") + "%02d".format(i + 1) + ".  " + track.name; textSize = 15f; gravity = Gravity.CENTER_VERTICAL; setPadding(dp(16), 0, dp(6), 0); setTextColor(if (active) 0xFF70558F.toInt() else 0xFF494452.toInt()); setTypeface(typeface, if (active) android.graphics.Typeface.BOLD else android.graphics.Typeface.NORMAL); maxLines = 1; ellipsize = android.text.TextUtils.TruncateAt.MIDDLE; setOnClickListener { dialog.dismiss(); currentScreen = returnScreen; playTrack(i) } }, LinearLayout.LayoutParams(0, dp(66), 1f))
+                    row.addView(TextView(this).apply { text = "▶"; textSize = 18f; gravity = Gravity.CENTER; setTextColor(if (active) 0xFF70558F.toInt() else 0xFF9993A7.toInt()); setOnClickListener { dialog.dismiss(); currentScreen = returnScreen; playTrack(i) } }, LinearLayout.LayoutParams(dp(42), dp(60)))
+                    row.addView(TextView(this).apply { text = "⠿"; textSize = 22f; gravity = Gravity.CENTER; setTextColor(0xFF9487A1.toInt()); setOnLongClickListener { v -> v.startDragAndDrop(android.content.ClipData.newPlainText("track-index", i.toString()), View.DragShadowBuilder(v), i, 0); true }; setOnDragListener { _, e -> if (e.action == android.view.DragEvent.ACTION_DROP) { val from = e.localState as? Int; if (from != null && from in tracks.indices && from != i) { val moved = tracks.removeAt(from); tracks.add(i, moved); val wi = works.indexOfFirst { it.folder == folderUri }; if (wi >= 0) { works[wi] = works[wi].copy(tracks = tracks.toList()); saveWorks() }; refreshRows() } }; true } }, LinearLayout.LayoutParams(dp(42), dp(60)))
+                    list.addView(row, LinearLayout.LayoutParams(-1, dp(66)).apply { bottomMargin = dp(2) })
+                }
+                if (tracks.isEmpty()) list.addView(label("这个作品没有音轨", 13, 0xFF9A8EA4.toInt()).apply { setPadding(dp(12), dp(18), 0, dp(18)) })
+            } else {
+                scripts.forEachIndexed { i, uri ->
+                    val row = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL }
+                    row.addView(TextView(this).apply { text = "%02d".format(i + 1) + ".  " + (uri.lastPathSegment?.substringAfterLast("/") ?: ("台本 " + (i + 1))); textSize = 15f; gravity = Gravity.CENTER_VERTICAL; setPadding(dp(16), 0, dp(6), 0); setTextColor(0xFF494452.toInt()); maxLines = 1; ellipsize = android.text.TextUtils.TruncateAt.MIDDLE; setOnClickListener { selectedScriptIndex = i; dialog.dismiss(); currentScreen = returnScreen; showScript = true; loadScript() } }, LinearLayout.LayoutParams(0, dp(66), 1f))
+                    row.addView(TextView(this).apply { text = "▤"; textSize = 18f; gravity = Gravity.CENTER; setTextColor(0xFF9993A7.toInt()); setOnClickListener { selectedScriptIndex = i; dialog.dismiss(); currentScreen = returnScreen; showScript = true; loadScript() } }, LinearLayout.LayoutParams(dp(42), dp(60)))
+                    row.addView(TextView(this).apply { text = "⠿"; textSize = 22f; gravity = Gravity.CENTER; setTextColor(0xFF9487A1.toInt()); setOnLongClickListener { v -> v.startDragAndDrop(android.content.ClipData.newPlainText("script-index", i.toString()), View.DragShadowBuilder(v), i, 0); true }; setOnDragListener { _, e -> if (e.action == android.view.DragEvent.ACTION_DROP) { val from = e.localState as? Int; if (from != null && from in scripts.indices && from != i) { val moved = scripts.removeAt(from); scripts.add(i, moved); val wi = works.indexOfFirst { it.folder == folderUri }; if (wi >= 0) { works[wi] = works[wi].copy(scripts = scripts.toList()); saveWorks() }; getSharedPreferences("shengyu_script_order", MODE_PRIVATE).edit().putString("order_" + (folderUri?.toString()?.hashCode() ?: currentFolderName.hashCode()), scripts.joinToString("\n") { it.toString() }).apply(); refreshRows() } }; true } }, LinearLayout.LayoutParams(dp(42), dp(60)))
+                    list.addView(row, LinearLayout.LayoutParams(-1, dp(66)).apply { bottomMargin = dp(2) })
+                }
+                if (scripts.isEmpty()) list.addView(label("这个作品没有台本", 13, 0xFF9A8EA4.toInt()).apply { setPadding(dp(12), dp(18), 0, dp(18)) })
             }
         }
-        refreshRows(); scroll.addView(list); panel.addView(scroll, LinearLayout.LayoutParams(-1, 0, 1f))
-        dialog.setContentView(panel)
-        dialog.setOnCancelListener { currentScreen = returnScreen }
-        dialog.show(); dialog.window?.setBackgroundDrawableResource(android.R.color.transparent)
-        dialog.window?.setLayout(-1, (resources.displayMetrics.heightPixels * 0.46f).toInt()); dialog.window?.setGravity(Gravity.BOTTOM)
-        dialog.window?.setDimAmount(0.35f)
+        fun tab(title: String, index: Int): LinearLayout {
+            val box = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; gravity = Gravity.CENTER }
+            box.addView(TextView(this).apply { text = title; textSize = 16f; gravity = Gravity.CENTER; setTextColor(if (selectedTab == index) 0xFF70558F.toInt() else 0xFF8D8999.toInt()); setPadding(0, dp(8), 0, dp(10)) }, LinearLayout.LayoutParams(-1, dp(48)))
+            box.addView(View(this).apply { setBackgroundColor(if (selectedTab == index) 0xFF70558F.toInt() else 0x00FFFFFF) }, LinearLayout.LayoutParams(-1, dp(3)))
+            box.setOnClickListener { selectedTab = index; tabs.removeAllViews(); tabs.addView(tab("♫  音轨列表", 0), LinearLayout.LayoutParams(0, -2, 1f)); tabs.addView(tab("▤  台本", 1), LinearLayout.LayoutParams(0, -2, 1f)); refreshRows() }
+            return box
+        }
+        tabs.addView(tab("♫  音轨列表", 0), LinearLayout.LayoutParams(0, -2, 1f)); tabs.addView(tab("▤  台本", 1), LinearLayout.LayoutParams(0, -2, 1f))
+        panel.addView(tabs)
+        panel.addView(View(this).apply { setBackgroundColor(0xFFECE8F1.toInt()) }, LinearLayout.LayoutParams(-1, dp(1)))
+        scroll.addView(list); panel.addView(scroll, LinearLayout.LayoutParams(-1, 0, 1f)); refreshRows()
+        dialog.setContentView(panel); dialog.setOnCancelListener { currentScreen = returnScreen }; dialog.show()
+        dialog.window?.setBackgroundDrawableResource(android.R.color.transparent); dialog.window?.setLayout(-1, (resources.displayMetrics.heightPixels * 0.68f).toInt()); dialog.window?.setGravity(Gravity.BOTTOM); dialog.window?.setDimAmount(0.28f)
     }
 
     private fun playTrack(index: Int, startAt: Int = 0) {
@@ -689,7 +685,7 @@ class MainActivity : ComponentActivity() {
         val body = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; background = android.graphics.drawable.GradientDrawable().apply { setColor(0xFFFCFAFD.toInt()); cornerRadius = dp(18).toFloat() } }
         scroll.addView(body)
         content.addView(scroll, LinearLayout.LayoutParams(-1, 0, 1f))
-        val uri = scripts.first()
+        val uri = scripts.getOrNull(selectedScriptIndex.coerceIn(0, scripts.lastIndex)) ?: scripts.first()
         if ((uri.lastPathSegment ?: "").substringAfterLast('.', "").lowercase() == "pdf") {
             try {
                 contentResolver.openFileDescriptor(uri, "r")!!.use { fd ->
@@ -755,88 +751,18 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun renderBottomControls() {
-        if (scripts.isNotEmpty()) {
-            val scriptToggle = TextView(this).apply {
-                text = if (showScript) "返回插画  ↑" else "查看台本  ↓"
-                textSize = 11f
-                gravity = Gravity.END or Gravity.CENTER_VERTICAL
-                setTextColor(0xFF88749F.toInt())
-                setPadding(dp(8), dp(2), dp(4), dp(2))
-                setOnClickListener {
-                    showScript = !showScript
-                    if (showScript) loadScript() else renderHome()
-                }
-            }
-            content.addView(scriptToggle, LinearLayout.LayoutParams(-1, dp(28)))
-        }
-        val progressRow = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            setPadding(dp(2), dp(2), dp(2), dp(4))
-        }
-        val times = LinearLayout(this).apply {
-            orientation = LinearLayout.HORIZONTAL
-            gravity = Gravity.CENTER_VERTICAL
-        }
-        elapsedLabel = label("0:00", 11, 0xFF81798F.toInt())
-        durationLabel = label("0:00", 11, 0xFF81798F.toInt())
-        times.addView(elapsedLabel, LinearLayout.LayoutParams(0, -2, 1f))
-        durationLabel?.gravity = Gravity.END
-        times.addView(durationLabel)
-        progressRow.addView(times)
-        progressBar = SeekBar(this).apply {
-            max = 1000
-            progress = 0
-            setPadding(dp(2), 0, dp(2), 0)
-            progressTintList = android.content.res.ColorStateList.valueOf(0xFF927DAA.toInt())
-            thumbTintList = android.content.res.ColorStateList.valueOf(0xFF927DAA.toInt())
-            progressBackgroundTintList = android.content.res.ColorStateList.valueOf(0xFFE5DDEB.toInt())
-            setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
-                override fun onProgressChanged(seekBar: SeekBar?, progress: Int, fromUser: Boolean) {
-                    val p = player ?: return
-                    if (fromUser && p.duration > 0) p.seekTo((p.duration.toLong() * progress / 1000L).toInt())
-                }
-                override fun onStartTrackingTouch(seekBar: SeekBar?) {}
-                override fun onStopTrackingTouch(seekBar: SeekBar?) { savePlaybackMemory() }
-            })
-        }
-        progressRow.addView(progressBar)
-        content.addView(progressRow)
-        progressHandler.removeCallbacks(progressUpdater)
-        progressHandler.post(progressUpdater)
-
-        val row = LinearLayout(this).apply {
-            orientation = LinearLayout.HORIZONTAL
-            gravity = Gravity.CENTER
-            setPadding(0, dp(5), 0, dp(2))
-        }
-        fun addControl(glyph: String, action: () -> Unit, primary: Boolean = false) {
-            val control = TextView(this).apply {
-                text = glyph
-                textSize = if (primary) 25f else 22f
-                gravity = Gravity.CENTER
-                setTextColor(if (primary) 0xFFFFFFFF.toInt() else 0xFF514A62.toInt())
-                background = android.graphics.drawable.GradientDrawable().apply {
-                    shape = android.graphics.drawable.GradientDrawable.OVAL
-                    setColor(if (primary) 0xFF927DAA.toInt() else android.graphics.Color.TRANSPARENT)
-                }
-                if (primary) elevation = dp(3).toFloat()
-                setOnClickListener { action() }
-            }
-            row.addView(control, LinearLayout.LayoutParams(0, dp(if (primary) 64 else 54), 1f))
-        }
-        addControl("☷", { showTrackList() })
-        addControl("|◀", { if (tracks.isNotEmpty()) playTrack((currentTrack - 1).coerceAtLeast(0)) })
-        addControl(if (player?.isPlaying == true) "Ⅱ" else "▶", {
-            if (player?.isPlaying == true) {
-                player?.pause()
-                if (showScript) loadScript() else renderHome()
-            } else if (currentTrack >= 0) {
-                player?.start()
-                if (showScript) loadScript() else renderHome()
-            } else if (tracks.isNotEmpty()) playTrack(0)
-        }, true)
-        addControl("▶|", { if (tracks.isNotEmpty()) playTrack((currentTrack + 1).coerceAtMost(tracks.lastIndex)) })
-        addControl("◖))", { showVolume() })
+        val progressRow = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setPadding(dp(2), dp(2), dp(2), dp(4)) }
+        val times = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL }
+        elapsedLabel = label("0:00", 11, 0xFF81798F.toInt()); durationLabel = label("0:00", 11, 0xFF81798F.toInt())
+        times.addView(elapsedLabel, LinearLayout.LayoutParams(0, -2, 1f)); durationLabel?.gravity = Gravity.END; times.addView(durationLabel); progressRow.addView(times)
+        progressBar = SeekBar(this).apply { max = 1000; progress = 0; setPadding(dp(2), 0, dp(2), 0); progressTintList = android.content.res.ColorStateList.valueOf(0xFF927DAA.toInt()); thumbTintList = android.content.res.ColorStateList.valueOf(0xFF927DAA.toInt()); progressBackgroundTintList = android.content.res.ColorStateList.valueOf(0xFFE5DDEB.toInt()); setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener { override fun onProgressChanged(seekBar: SeekBar?, progress: Int, fromUser: Boolean) { val p = player ?: return; if (fromUser && p.duration > 0) p.seekTo((p.duration.toLong() * progress / 1000L).toInt()) }; override fun onStartTrackingTouch(seekBar: SeekBar?) {}; override fun onStopTrackingTouch(seekBar: SeekBar?) { savePlaybackMemory() } }) }
+        progressRow.addView(progressBar); content.addView(progressRow); progressHandler.removeCallbacks(progressUpdater); progressHandler.post(progressUpdater)
+        val row = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER; setPadding(0, dp(5), 0, dp(2)) }
+        fun addControl(title: String, action: () -> Unit, primary: Boolean = false) { val control = TextView(this).apply { text = title; textSize = if (primary) 24f else 19f; gravity = Gravity.CENTER; setTextColor(if (primary) 0xFFFFFFFF.toInt() else 0xFF6D5D7D.toInt()); background = android.graphics.drawable.GradientDrawable().apply { cornerRadius = dp(if (primary) 28 else 18).toFloat(); setColor(if (primary) 0xFF927DAA.toInt() else 0xFFEDE5F2.toInt()) }; if (primary) elevation = dp(3).toFloat(); setOnClickListener { action() } }; row.addView(control, LinearLayout.LayoutParams(0, dp(if (primary) 56 else 48), 1f).apply { setMargins(dp(3), 0, dp(3), 0) }) }
+        addControl("☷", { showTrackList() }); addControl("↶", { player?.let { it.seekTo((it.currentPosition - 15000).coerceAtLeast(0)) } })
+        addControl(if (player?.isPlaying == true) "Ⅱ" else "▶", { if (player?.isPlaying == true) { player?.pause(); if (showScript) loadScript() else renderHome() } else if (currentTrack >= 0) { player?.start(); if (showScript) loadScript() else renderHome() } else if (tracks.isNotEmpty()) playTrack(0) }, true)
+        addControl("↷", { player?.let { it.seekTo((it.currentPosition + 15000).coerceAtMost(it.duration)) } })
+        addControl("▤", { if (showScript) { showScript = false; renderHome() } else if (scripts.isNotEmpty()) { showScript = true; loadScript() } else Toast.makeText(this, "这个作品没有台本。", Toast.LENGTH_SHORT).show() })
         content.addView(row)
     }
 
