@@ -111,11 +111,20 @@ class MainActivity : ComponentActivity() {
     private fun renderLibrary() {
         currentScreen = "library"
         content.removeAllViews()
-        val heading = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL; setPadding(dp(14), dp(10), dp(14), dp(10)); background = android.graphics.drawable.GradientDrawable().apply { setColor(0xFFEDE5F2.toInt()); cornerRadius = dp(14).toFloat() } }
-        heading.addView(label(libraryFilter + "  ▾", 17, 0xFF51435F.toInt(), true))
-        heading.addView(label("  " + filteredWorks().size + " 部作品", 12, 0xFF91869B.toInt()))
-        heading.setOnClickListener { showLibrarySections() }
-        content.addView(heading)
+        val brand = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setPadding(dp(2), dp(4), dp(2), dp(12)) }
+        brand.addView(label("声屿", 27, 0xFF51435F.toInt(), true))
+        brand.addView(label("SHENGYU  ·  ASMR LIBRARY", 9, 0xFFA095AA.toInt(), true))
+        content.addView(brand)
+        val heading = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL
+            setPadding(dp(14), dp(10), dp(14), dp(10))
+            background = android.graphics.drawable.GradientDrawable().apply { setColor(0xFFEDE5F2.toInt()); cornerRadius = dp(14).toFloat() }
+            setOnClickListener { showLibrarySections() }
+        }
+        heading.addView(label(libraryFilter + "  ▾", 16, 0xFF51435F.toInt(), true))
+        heading.addView(View(this), LinearLayout.LayoutParams(0, 1, 1f))
+        heading.addView(label(filteredWorks().size.toString() + " 部作品", 12, 0xFF91869B.toInt()))
+        content.addView(heading, LinearLayout.LayoutParams(-1, dp(48)))
         if (works.isEmpty()) content.addView(label("还没有作品。点击下方按钮，选择一个作品文件夹导入。", 14, 0xFF81798F.toInt()))
         if (works.isEmpty()) {
             val empty = TextView(this).apply {
