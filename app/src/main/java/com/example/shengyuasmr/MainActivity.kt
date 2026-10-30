@@ -101,7 +101,7 @@ class MainActivity : ComponentActivity() {
         root = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             setPadding(dp(18), dp(2), dp(18), dp(8))
-            setBackgroundColor(0xFFF7F4FB.toInt())
+            setBackgroundColor(0xFFF8F5FA.toInt())
         }
         content = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
         root.addView(content, LinearLayout.LayoutParams(-1, 0, 1f))
@@ -111,7 +111,7 @@ class MainActivity : ComponentActivity() {
     private fun renderLibrary() {
         currentScreen = "library"
         content.removeAllViews()
-        val heading = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL; setPadding(0, dp(4), 0, dp(8)) }
+        val heading = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL; setPadding(dp(2), dp(8), dp(2), dp(12)) }
         heading.addView(label(libraryFilter + "  ▾", 22, 0xFF3E3552.toInt(), true))
         heading.addView(label("  " + filteredWorks().size, 16, 0xFF81798F.toInt()))
         heading.setOnClickListener { showLibrarySections() }
@@ -122,7 +122,7 @@ class MainActivity : ComponentActivity() {
                 text = "♫\n\n声屿还在等你的第一份声音。"
                 textSize = 18f
                 gravity = Gravity.CENTER
-                setTextColor(0xFF81798F.toInt())
+                setTextColor(0xFF8A8192.toInt())
             }
             content.addView(empty, LinearLayout.LayoutParams(-1, 0, 1f))
         } else {
@@ -133,10 +133,13 @@ class MainActivity : ComponentActivity() {
                     orientation = LinearLayout.HORIZONTAL
                     gravity = Gravity.CENTER_VERTICAL
                     setPadding(dp(8), dp(8), dp(4), dp(8))
-                    setBackgroundColor(0xFFEDE7F5.toInt())
+                    background = android.graphics.drawable.GradientDrawable().apply { setColor(0xFFF0EAF5.toInt()); cornerRadius = dp(16).toFloat() }
+                    elevation = dp(1).toFloat()
                 }
                 val coverView = ImageView(this).apply {
                     scaleType = ImageView.ScaleType.CENTER_CROP
+                    background = android.graphics.drawable.GradientDrawable().apply { setColor(0xFFE5DCEB.toInt()); cornerRadius = dp(12).toFloat() }
+                    clipToOutline = true
                     val coverUri = work.cover ?: work.arts.firstOrNull()
                     if (coverUri != null) try { contentResolver.openInputStream(coverUri)?.use { setImageBitmap(BitmapFactory.decodeStream(it)) } } catch (_: Exception) {}
                     if (drawable == null) setImageResource(android.R.drawable.ic_menu_gallery)
@@ -146,7 +149,7 @@ class MainActivity : ComponentActivity() {
                 info.addView(TextView(this).apply {
                     text = work.title
                     textSize = 16f
-                    setTextColor(0xFF3E3552.toInt())
+                    setTextColor(0xFF45394F.toInt())
                     setTypeface(typeface, android.graphics.Typeface.BOLD)
                     maxLines = 3
                     ellipsize = android.text.TextUtils.TruncateAt.END
@@ -176,7 +179,7 @@ class MainActivity : ComponentActivity() {
                         if (currentTrack in tracks.indices) playTrack(currentTrack, saved.second) else renderHome()
                     } else { showScript = false; renderHome() }
                 }
-                val lp = LinearLayout.LayoutParams(-1, dp(110)).apply { topMargin = dp(8) }
+                val lp = LinearLayout.LayoutParams(-1, dp(110)).apply { topMargin = dp(10); marginStart = dp(2); marginEnd = dp(2) }
                 list.addView(row, lp)
             }
             scroll.addView(list)
@@ -864,8 +867,10 @@ class MainActivity : ComponentActivity() {
 
     private fun button(text: String) = Button(this).apply {
         this.text = text; textSize = 13f; isAllCaps = false
-        setTextColor(0xFF5C4D79.toInt())
-        setBackgroundTintList(android.content.res.ColorStateList.valueOf(0xFFE8E0F1.toInt()))
+        setTextColor(0xFF62536F.toInt())
+        setBackgroundTintList(android.content.res.ColorStateList.valueOf(0xFFEDE5F2.toInt()))
+        minHeight = dp(44)
+        elevation = dp(1).toFloat()
     }
     private fun label(text: String, size: Int, color: Int, bold: Boolean = false) = TextView(this).apply {
         this.text = text; textSize = size.toFloat(); setTextColor(color)
