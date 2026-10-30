@@ -210,10 +210,30 @@ class MainActivity : ComponentActivity() {
     private fun renderHome() {
         currentScreen = "home"
         content.removeAllViews()
-        val title = label("正在聆听  ·  " + currentFolderName, 19, 0xFF51435F.toInt(), true)
-        title.setPadding(0, 0, 0, dp(4))
-        content.addView(title)
-        content.addView(label(if (tracks.isEmpty()) "先导入一个作品文件夹，应用会帮你识别音频、插画和台本。" else "已识别 ${tracks.size} 条音轨 · ${artworks.size} 张插画 · ${scripts.size} 份台本", 14, 0xFF81798F.toInt()))
+        val heading = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(14), dp(12), dp(14), dp(12))
+            background = android.graphics.drawable.GradientDrawable().apply {
+                setColor(0xFFFAF8FC.toInt())
+                cornerRadius = dp(16).toFloat()
+                setStroke(dp(1), 0xFFEAE3F0.toInt())
+            }
+        }
+        heading.addView(label("NOW PLAYING  ·  正在聆听", 9, 0xFF9A8EA4.toInt(), true))
+        heading.addView(label(currentFolderName, 17, 0xFF51435F.toInt(), true).apply {
+            maxLines = 2
+            ellipsize = android.text.TextUtils.TruncateAt.END
+            setPadding(0, dp(4), 0, dp(4))
+        })
+        val trackName = tracks.getOrNull(currentTrack)?.name ?: "尚未选择音轨"
+        heading.addView(label(trackName, 12, 0xFF796B86.toInt()).apply {
+            maxLines = 1
+            ellipsize = android.text.TextUtils.TruncateAt.END
+        })
+        val detail = label(if (tracks.isEmpty()) "先导入一个作品文件夹，应用会帮你识别音频、插画和台本。" else "${tracks.size} 条音轨  ·  ${artworks.size} 张插画  ·  ${scripts.size} 份台本", 10, 0xFF9A8EA4.toInt())
+        detail.setPadding(0, dp(7), 0, 0)
+        heading.addView(detail)
+        content.addView(heading, LinearLayout.LayoutParams(-1, -2).apply { bottomMargin = dp(8) })
         val artFrame = FrameLayout(this).apply { clipToPadding = true; clipChildren = true; background = android.graphics.drawable.GradientDrawable().apply { setColor(0xFFF0EAF5.toInt()); cornerRadius = dp(20).toFloat() }; setPadding(dp(8), dp(10), dp(8), dp(10))
                             elevation = dp(1).toFloat() }
         val art = ImageView(this).apply { scaleType = ImageView.ScaleType.FIT_CENTER; setPadding(0, 0, 0, 0) }
@@ -674,7 +694,10 @@ class MainActivity : ComponentActivity() {
         progressBar = SeekBar(this).apply {
             max = 1000
             progress = 0
-            setPadding(0, 0, 0, 0)
+            setPadding(dp(2), 0, dp(2), 0)
+            progressTintList = android.content.res.ColorStateList.valueOf(0xFF927DAA.toInt())
+            thumbTintList = android.content.res.ColorStateList.valueOf(0xFF927DAA.toInt())
+            progressBackgroundTintList = android.content.res.ColorStateList.valueOf(0xFFE5DDEB.toInt())
             setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
                 override fun onProgressChanged(seekBar: SeekBar?, progress: Int, fromUser: Boolean) {
                     val p = player ?: return
