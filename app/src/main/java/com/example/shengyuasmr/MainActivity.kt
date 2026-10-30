@@ -212,7 +212,7 @@ class MainActivity : ComponentActivity() {
         content.addView(title)
         content.addView(label(if (tracks.isEmpty()) "先导入一个作品文件夹，应用会帮你识别音频、插画和台本。" else "已识别 ${tracks.size} 条音轨 · ${artworks.size} 张插画 · ${scripts.size} 份台本", 14, 0xFF81798F.toInt()))
         val artFrame = FrameLayout(this).apply { clipToPadding = true; clipChildren = true; background = android.graphics.drawable.GradientDrawable().apply { setColor(0xFFF0EAF5.toInt()); cornerRadius = dp(20).toFloat() }; setPadding(dp(8), dp(10), dp(8), dp(10))
-                            minHeight = dp(40); elevation = dp(1).toFloat() }
+                            elevation = dp(1).toFloat() }
         val art = ImageView(this).apply { scaleType = ImageView.ScaleType.FIT_CENTER; setPadding(0, 0, 0, 0) }
         if (artworks.isNotEmpty()) {
             try { contentResolver.openInputStream(artworks[currentArt % artworks.size])?.use { art.setImageBitmap(BitmapFactory.decodeStream(it)) } } catch (_: Exception) {}
