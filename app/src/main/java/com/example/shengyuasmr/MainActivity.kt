@@ -234,8 +234,17 @@ class MainActivity : ComponentActivity() {
         detail.setPadding(0, dp(7), 0, 0)
         heading.addView(detail)
         content.addView(heading, LinearLayout.LayoutParams(-1, -2).apply { bottomMargin = dp(8) })
-        val artFrame = FrameLayout(this).apply { clipToPadding = true; clipChildren = true; background = android.graphics.drawable.GradientDrawable().apply { setColor(0xFFF0EAF5.toInt()); cornerRadius = dp(20).toFloat() }; setPadding(dp(8), dp(10), dp(8), dp(10))
-                            elevation = dp(1).toFloat() }
+        val artFrame = FrameLayout(this).apply {
+            clipToPadding = true
+            clipChildren = true
+            background = android.graphics.drawable.GradientDrawable().apply {
+                setColor(0xFFFAF8FC.toInt())
+                cornerRadius = dp(20).toFloat()
+                setStroke(dp(1), 0xFFEAE3F0.toInt())
+            }
+            setPadding(dp(8), dp(10), dp(8), dp(10))
+            elevation = dp(1).toFloat()
+        }
         val art = ImageView(this).apply { scaleType = ImageView.ScaleType.FIT_CENTER; setPadding(0, 0, 0, 0) }
         if (artworks.isNotEmpty()) {
             try { contentResolver.openInputStream(artworks[currentArt % artworks.size])?.use { art.setImageBitmap(BitmapFactory.decodeStream(it)) } } catch (_: Exception) {}
