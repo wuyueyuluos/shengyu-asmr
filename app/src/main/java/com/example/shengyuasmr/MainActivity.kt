@@ -111,9 +111,9 @@ class MainActivity : ComponentActivity() {
     private fun renderLibrary() {
         currentScreen = "library"
         content.removeAllViews()
-        val heading = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL; setPadding(dp(2), dp(8), dp(2), dp(12)) }
-        heading.addView(label(libraryFilter + "  ▾", 22, 0xFF3E3552.toInt(), true))
-        heading.addView(label("  " + filteredWorks().size, 16, 0xFF81798F.toInt()))
+        val heading = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL; setPadding(dp(14), dp(10), dp(14), dp(10)); background = android.graphics.drawable.GradientDrawable().apply { setColor(0xFFEDE5F2.toInt()); cornerRadius = dp(14).toFloat() } }
+        heading.addView(label(libraryFilter + "  ▾", 17, 0xFF51435F.toInt(), true))
+        heading.addView(label("  " + filteredWorks().size + " 部作品", 12, 0xFF91869B.toInt()))
         heading.setOnClickListener { showLibrarySections() }
         content.addView(heading)
         if (works.isEmpty()) content.addView(label("还没有作品。点击下方按钮，选择一个作品文件夹导入。", 14, 0xFF81798F.toInt()))
@@ -198,11 +198,11 @@ class MainActivity : ComponentActivity() {
     private fun renderHome() {
         currentScreen = "home"
         content.removeAllViews()
-        val title = label(currentFolderName, 20, 0xFF3E3552.toInt(), true)
+        val title = label("正在聆听  ·  " + currentFolderName, 19, 0xFF51435F.toInt(), true)
         title.setPadding(0, 0, 0, dp(4))
         content.addView(title)
         content.addView(label(if (tracks.isEmpty()) "先导入一个作品文件夹，应用会帮你识别音频、插画和台本。" else "已识别 ${tracks.size} 条音轨 · ${artworks.size} 张插画 · ${scripts.size} 份台本", 14, 0xFF81798F.toInt()))
-        val artFrame = FrameLayout(this).apply { clipToPadding = true; clipChildren = true }
+        val artFrame = FrameLayout(this).apply { clipToPadding = true; clipChildren = true; background = android.graphics.drawable.GradientDrawable().apply { setColor(0xFFF0EAF5.toInt()); cornerRadius = dp(20).toFloat() }; setPadding(dp(8), dp(8), dp(8), dp(8)); elevation = dp(1).toFloat() }
         val art = ImageView(this).apply { scaleType = ImageView.ScaleType.FIT_CENTER; setPadding(0, 0, 0, 0) }
         if (artworks.isNotEmpty()) {
             try { contentResolver.openInputStream(artworks[currentArt % artworks.size])?.use { art.setImageBitmap(BitmapFactory.decodeStream(it)) } } catch (_: Exception) {}
