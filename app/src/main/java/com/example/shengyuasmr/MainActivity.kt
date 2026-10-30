@@ -243,57 +243,134 @@ class MainActivity : ComponentActivity() {
         }.setNegativeButton("取消", null).show()
     }
     private fun showTagFilter() {
-        val groups = linkedMapOf("CV" to works.flatMap { it.cv.split(",", "，", "、") }, "社团" to works.flatMap { it.circle.split(",", "，", "、") }, "自定义" to works.flatMap { it.tags }).mapValues { it.value.map { v -> v.trim() }.filter { v -> v.isNotBlank() }.distinct() }
+        val prefs = getSharedPreferences("shengyu_library", MODE_PRIVATE)
+        val catalog = linkedMapOf<String, MutableList<String>>()
+        val names = listOf("CV", "社团", "自定义")
+        val saved = prefs.getString("tag_catalog", null)
+        if (saved != null) {
+            try {
+                val json = JSONObject(saved)
+                names.forEach { name ->
+                    val arr = json.optJSONArray(name) ?: JSONArray()
+                    catalog[name] = (0 until arr.length()).map { arr.optString(it).trim() }.filter { it.isNotBlank() }.distinct().toMutableList()
+                }
+            } catch (_: Exception) { }
+        }
+        if (catalog.isEmpty()) {
+            catalog["CV"] = works.flatMap { it.cv.split(",", "，", "、") }.map { it.trim() }.filter { it.isNotBlank() }.distinct().toMutableList()
+            catalog["社团"] = works.flatMap { it.circle.split(",", "，", "、") }.map { it.trim() }.filter { it.isNotBlank() }.distinct().toMutableList()
+            catalog["自定义"] = works.flatMap { it.tags }.map { it.trim() }.filter { it.isNotBlank() }.distinct().toMutableList()
+        }
+        names.forEach { if (catalog[it] == null) catalog[it] = mutableListOf() }
+        fun saveCatalog() {
+            val json = JSONObject()
+            catalog.forEach { (name, tags) -> json.put(name, JSONArray(tags)) }
+            prefs.edit().putString("tag_catalog", json.toString()).apply()
+        }
+        saveCatalog()
         val selected = appliedTags.toMutableSet()
-        var tagEditing = false
+        val collapsed = mutableSetOf<String>()
+        var editing = false
         val dialog = Dialog(this)
-        val panel = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setPadding(dp(16), dp(12), dp(16), dp(14)); background = android.graphics.drawable.GradientDrawable().apply { setColor(0xF7F7F4FB.toInt()); cornerRadius = dp(22).toFloat() } }
+        val panel = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(16), dp(12), dp(16), dp(14))
+            background = android.graphics.drawable.GradientDrawable().apply { setColor(0xF7F7F4FB.toInt()); cornerRadius = dp(22).toFloat() }
+        }
         val top = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL }
         val search = EditText(this).apply { hint = "搜索标签"; setSingleLine(true) }
         top.addView(search, LinearLayout.LayoutParams(0, dp(48), 1f))
-        val editTags = button("编辑")
-        top.addView(editTags, LinearLayout.LayoutParams(dp(64), dp(44)))
+        val editButton = button("编辑")
+        top.addView(editButton, LinearLayout.LayoutParams(dp(64), dp(44)))
         panel.addView(top)
         val scroll = ScrollView(this)
         val list = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
-        scroll.addView(list); panel.addView(scroll, LinearLayout.LayoutParams(-1, 0, 1f).apply { topMargin = dp(8); bottomMargin = dp(8) })
-        fun redraw(q: String = "") {
+        scroll.addView(list)
+        panel.addView(scroll, LinearLayout.LayoutParams(-1, 0, 1f).apply { topMargin = dp(8); bottomMargin = dp(8) })
+        fun redraw(query: String = "") {
             list.removeAllViews()
-            groups.forEach { (name, tags) ->
-                list.addView(label(name, 16, 0xFF514665.toInt(), true))
-                val chips = android.widget.GridLayout(this).apply { columnCount = 3 }
-                tags.filter { it.contains(q, true) }.forEach { tag ->
-                    val chip = TextView(this@MainActivity).apply { text = tag; gravity = Gravity.CENTER; textSize = 13f; setPadding(dp(8), dp(8), dp(8), dp(8)); setTextColor(if (tag in selected) -1 else 0xFF5C4D79.toInt()); background = android.graphics.drawable.GradientDrawable().apply { cornerRadius = dp(18).toFloat(); setColor(if (tag in selected) 0xFF8B78AD.toInt() else 0xFFE8E0F1.toInt()) }; setOnClickListener { if (!tagEditing) { if (!selected.add(tag)) selected.remove(tag) }; redraw(search.text.toString()) }
-                    setOnLongClickListener {
-                        if (!tagEditing) return@setOnLongClickListener false
-                        android.app.AlertDialog.Builder(this@MainActivity)
-                            .setMessage("从所有作品信息中删除标签“" + tag + "”？")
-                            .setPositiveButton("删除") { _, _ ->
-                                works.indices.forEach { i ->
-                                    val w = works[i]
-                                    works[i] = w.copy(
-                                        cv = w.cv.split(",", "，", "、").map { it.trim() }.filter { it != tag }.joinToString(", "),
-                                        circle = w.circle.split(",", "，", "、").map { it.trim() }.filter { it != tag }.joinToString(", "),
-                                        tags = w.tags.filterNot { it.trim() == tag }
-                                    )
-                                }
-                                selected.remove(tag)
-                                appliedTags.remove(tag)
-                                saveWorks()
-                                redraw(search.text.toString())
-                            }.setNegativeButton("取消", null).show()
-                        true
-                    } }
-                    chips.addView(chip, android.widget.GridLayout.LayoutParams().apply { width = 0; columnSpec = android.widget.GridLayout.spec(android.widget.GridLayout.UNDEFINED, 1f); setMargins(dp(3), dp(3), dp(3), dp(3)) })
+            names.forEach { group ->
+                val header = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL }
+                val title = TextView(this@MainActivity).apply {
+                    text = (if (group in collapsed) "▸ " else "▾ ") + group + "（${catalog[group]!!.size}）"
+                    textSize = 15f; setTypeface(typeface, android.graphics.Typeface.BOLD); setTextColor(0xFF514665.toInt())
+                    setPadding(0, dp(10), 0, dp(8))
+                    setOnClickListener { if (!collapsed.add(group)) collapsed.remove(group); redraw(search.text.toString()) }
                 }
-                list.addView(chips)
+                header.addView(title, LinearLayout.LayoutParams(0, dp(42), 1f))
+                val add = button("+").apply {
+                    visibility = if (editing) View.VISIBLE else View.GONE
+                    setOnClickListener {
+                        val input = EditText(this@MainActivity).apply { hint = "输入新的${group}标签"; setSingleLine(true) }
+                        android.app.AlertDialog.Builder(this@MainActivity).setTitle("新增${group}标签").setView(input)
+                            .setPositiveButton("添加") { _, _ ->
+                                val value = input.text.toString().trim()
+                                if (value.isNotBlank() && value !in catalog[group]!!) { catalog[group]!!.add(value); saveCatalog(); redraw(search.text.toString()) }
+                            }.setNegativeButton("取消", null).show()
+                    }
+                }
+                header.addView(add, LinearLayout.LayoutParams(dp(44), dp(38)))
+                list.addView(header)
+                if (group !in collapsed) {
+                    val chips = android.widget.GridLayout(this).apply { columnCount = 3 }
+                    catalog[group]!!.filter { it.contains(query, true) }.forEach { tag ->
+                        val chip = TextView(this@MainActivity).apply {
+                            text = tag; gravity = Gravity.CENTER; textSize = 13f
+                            setPadding(dp(8), dp(8), dp(8), dp(8))
+                            setTextColor(if (tag in selected) -1 else 0xFF5C4D79.toInt())
+                            background = android.graphics.drawable.GradientDrawable().apply {
+                                cornerRadius = dp(18).toFloat()
+                                setColor(if (tag in selected) 0xFF8B78AD.toInt() else 0xFFE8E0F1.toInt())
+                            }
+                            setOnClickListener {
+                                if (!editing) { if (!selected.add(tag)) selected.remove(tag) }
+                                redraw(search.text.toString())
+                            }
+                            setOnLongClickListener {
+                                if (!editing) return@setOnLongClickListener false
+                                val items = arrayOf("上移", "下移", "从标签面板删除")
+                                android.app.AlertDialog.Builder(this@MainActivity).setTitle(tag).setItems(items) { _, which ->
+                                    val bucket = catalog[group]!!
+                                    val index = bucket.indexOf(tag)
+                                    when (which) {
+                                        0 -> if (index > 0) { java.util.Collections.swap(bucket, index, index - 1); saveCatalog() }
+                                        1 -> if (index >= 0 && index < bucket.lastIndex) { java.util.Collections.swap(bucket, index, index + 1); saveCatalog() }
+                                        2 -> android.app.AlertDialog.Builder(this@MainActivity)
+                                            .setMessage("只从标签面板目录删除“$tag”，不会修改任何作品资料。")
+                                            .setPositiveButton("删除") { _, _ -> bucket.remove(tag); selected.remove(tag); appliedTags.remove(tag); saveCatalog(); redraw(search.text.toString()) }
+                                            .setNegativeButton("取消", null).show()
+                                    }
+                                    redraw(search.text.toString())
+                                }.setNegativeButton("取消", null).show()
+                                true
+                            }
+                        }
+                        chips.addView(chip, android.widget.GridLayout.LayoutParams().apply {
+                            width = 0
+                            columnSpec = android.widget.GridLayout.spec(android.widget.GridLayout.UNDEFINED, 1f)
+                            setMargins(dp(3), dp(3), dp(3), dp(3))
+                        })
+                    }
+                    list.addView(chips)
+                }
             }
         }
-        editTags.setOnClickListener { tagEditing = !tagEditing; editTags.text = if (tagEditing) "完成" else "编辑"; redraw(search.text.toString()) }
-        search.addTextChangedListener(object : android.text.TextWatcher { override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) {}; override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) { redraw(s?.toString() ?: "") }; override fun afterTextChanged(s: android.text.Editable?) {} })
+        editButton.setOnClickListener { editing = !editing; editButton.text = if (editing) "完成" else "编辑"; redraw(search.text.toString()) }
+        search.addTextChangedListener(object : android.text.TextWatcher {
+            override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) {}
+            override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) { redraw(s?.toString() ?: "") }
+            override fun afterTextChanged(s: android.text.Editable?) {}
+        })
         redraw()
-        panel.addView(button("应用筛选").apply { setOnClickListener { appliedTags.clear(); appliedTags.addAll(selected); libraryFilter = "标签"; dialog.dismiss(); renderLibrary() } })
-        dialog.setContentView(panel); dialog.show(); dialog.window?.setBackgroundDrawableResource(android.R.color.transparent); dialog.window?.setLayout(-1, (resources.displayMetrics.heightPixels * 0.66f).toInt()); dialog.window?.setGravity(Gravity.BOTTOM); dialog.window?.setDimAmount(0.3f)
+        panel.addView(button("应用筛选").apply {
+            setOnClickListener { appliedTags.clear(); appliedTags.addAll(selected); libraryFilter = "标签"; dialog.dismiss(); renderLibrary() }
+        })
+        dialog.setContentView(panel)
+        dialog.show()
+        dialog.window?.setBackgroundDrawableResource(android.R.color.transparent)
+        dialog.window?.setLayout(-1, (resources.displayMetrics.heightPixels * 0.66f).toInt())
+        dialog.window?.setGravity(Gravity.BOTTOM)
+        dialog.window?.setDimAmount(0.3f)
     }
 
     private fun showWorkMenu(work: LocalWork) {
