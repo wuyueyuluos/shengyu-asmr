@@ -292,11 +292,13 @@ class MainActivity : ComponentActivity() {
         val dialog = Dialog(this)
         val panel = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            setPadding(dp(16), dp(12), dp(16), dp(14))
-            background = android.graphics.drawable.GradientDrawable().apply { setColor(0xF7F7F4FB.toInt()); cornerRadius = dp(22).toFloat() }
+            setPadding(dp(18), dp(12), dp(18), dp(16))
+            background = android.graphics.drawable.GradientDrawable().apply { setColor(0xFFFAF8FC.toInt()); cornerRadius = dp(24).toFloat() }
         }
+        panel.addView(View(this).apply { background = android.graphics.drawable.GradientDrawable().apply { setColor(0xFFD9D0E2.toInt()); cornerRadius = dp(3).toFloat() } }, LinearLayout.LayoutParams(dp(38), dp(5)).apply { gravity = Gravity.CENTER; bottomMargin = dp(10) })
+        panel.addView(label("标签筛选", 18, 0xFF51435F.toInt(), true).apply { setPadding(0, 0, 0, dp(8)) })
         val top = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL }
-        val search = EditText(this).apply { hint = "搜索标签"; setSingleLine(true) }
+        val search = EditText(this).apply { hint = "搜索标签"; setSingleLine(true); textSize = 14f; setPadding(dp(12), 0, dp(12), 0); background = android.graphics.drawable.GradientDrawable().apply { setColor(0xFFF0ECF4.toInt()); cornerRadius = dp(13).toFloat() } }
         top.addView(search, LinearLayout.LayoutParams(0, dp(48), 1f))
         val editButton = button("编辑").apply { textSize = 12f }
         top.addView(editButton, LinearLayout.LayoutParams(dp(64), dp(44)))
@@ -407,7 +409,7 @@ class MainActivity : ComponentActivity() {
 
     private fun showEditWork(work: LocalWork) {
         val box = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setPadding(dp(18), dp(12), dp(18), dp(8)) }
-        fun field(hint: String, value: String) = EditText(this).apply { this.hint = hint; setText(value); setSingleLine(true); textSize = 14f; setPadding(dp(12), dp(10), dp(12), dp(10)) }
+        fun field(hint: String, value: String) = EditText(this).apply { this.hint = hint; setText(value); setSingleLine(true); textSize = 14f; setPadding(dp(12), dp(10), dp(12), dp(10)); background = android.graphics.drawable.GradientDrawable().apply { setColor(0xFFF1ECF5.toInt()); cornerRadius = dp(12).toFloat() } }
         val title = field("作品名", work.title)
         val cv = field("CV", work.cv)
         val circle = field("社团", work.circle)
@@ -425,7 +427,15 @@ class MainActivity : ComponentActivity() {
                 }.setNegativeButton("取消", null).show()
             }
         }
-        box.addView(title); box.addView(coverButton); box.addView(cv); box.addView(circle); box.addView(tags)
+        box.addView(label("作品名称", 12, 0xFF8A7E95.toInt(), true))
+        box.addView(title, LinearLayout.LayoutParams(-1, dp(48)).apply { bottomMargin = dp(10) })
+        box.addView(coverButton, LinearLayout.LayoutParams(-1, dp(46)).apply { bottomMargin = dp(10) })
+        box.addView(label("CV", 12, 0xFF8A7E95.toInt(), true))
+        box.addView(cv, LinearLayout.LayoutParams(-1, dp(48)).apply { bottomMargin = dp(10) })
+        box.addView(label("社团", 12, 0xFF8A7E95.toInt(), true))
+        box.addView(circle, LinearLayout.LayoutParams(-1, dp(48)).apply { bottomMargin = dp(10) })
+        box.addView(label("自定义标签 · 逗号分隔", 12, 0xFF8A7E95.toInt(), true))
+        box.addView(tags, LinearLayout.LayoutParams(-1, dp(48)))
         android.app.AlertDialog.Builder(this).setTitle("编辑作品信息").setView(ScrollView(this).apply { addView(box) })
             .setPositiveButton("保存") { _, _ ->
                 val i = works.indexOfFirst { it.folder == work.folder }
