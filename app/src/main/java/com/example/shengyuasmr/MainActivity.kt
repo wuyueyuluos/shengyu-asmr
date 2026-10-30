@@ -229,7 +229,7 @@ class MainActivity : ComponentActivity() {
 
     private fun filteredWorks(): List<LocalWork> {
         return when (libraryFilter) {
-            "最近播放" -> works.sortedByDescending { getSharedPreferences("shengyu_playback", MODE_PRIVATE).getLong("last_" + it.folder.toString().hashCode(), 0L) }
+            "最近播放" -> works.sortedByDescending { getSharedPreferences("shengyu_playback", MODE_PRIVATE).getLong("lastPlayed_" + it.folder.toString().hashCode(), 0L) }
             "导入时间" -> works.sortedByDescending { it.importedAt }
             "收藏" -> works.filter { it.favorite }
             "标签" -> works.filter { w -> appliedTags.isNotEmpty() && appliedTags.all { it in (w.cv.split(",", "，", "、") + w.circle.split(",", "，", "、") + w.tags).map { v -> v.trim() }.filter { v -> v.isNotBlank() } } }
@@ -623,6 +623,7 @@ class MainActivity : ComponentActivity() {
         getSharedPreferences("shengyu_playback", MODE_PRIVATE).edit()
             .putInt(key + "_track", index)
             .putInt(key + "_position", position.coerceAtLeast(0))
+            .putLong("lastPlayed_" + uri.toString().hashCode(), System.currentTimeMillis())
             .apply()
     }
 
