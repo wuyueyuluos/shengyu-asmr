@@ -208,6 +208,7 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun renderHome() {
+        saveScriptScrollPosition()
         currentScreen = "home"
         content.removeAllViews()
         val heading = LinearLayout(this).apply {
@@ -287,7 +288,7 @@ class MainActivity : ComponentActivity() {
         val choices = arrayOf("全部作品", "最近播放", "导入时间", "收藏", "标签")
         android.app.AlertDialog.Builder(this).setTitle("作品分类").setItems(choices) { _, i ->
             if (i == 4) showTagFilter() else { libraryFilter = choices[i]; appliedTags.clear(); renderLibrary() }
-        }.setNegativeButton("取消", null).show()
+        }.setNegativeButton("取消", null).showStyled()
     }
     private fun showTagFilter() {
         val prefs = getSharedPreferences("shengyu_library", MODE_PRIVATE)
@@ -355,7 +356,7 @@ class MainActivity : ComponentActivity() {
                             .setPositiveButton("添加") { _, _ ->
                                 val value = input.text.toString().trim()
                                 if (value.isNotBlank() && value !in catalog[group]!!) { catalog[group]!!.add(value); saveCatalog(); redraw(search.text.toString()) }
-                            }.setNegativeButton("取消", null).show()
+                            }.setNegativeButton("取消", null).showStyled()
                     }
                 }
                 header.addView(add, LinearLayout.LayoutParams(dp(44), dp(38)))
@@ -387,10 +388,10 @@ class MainActivity : ComponentActivity() {
                                         2 -> android.app.AlertDialog.Builder(this@MainActivity)
                                             .setMessage("只从标签面板目录删除“$tag”，不会修改任何作品资料。")
                                             .setPositiveButton("删除") { _, _ -> bucket.remove(tag); selected.remove(tag); appliedTags.remove(tag); saveCatalog(); redraw(search.text.toString()) }
-                                            .setNegativeButton("取消", null).show()
+                                            .setNegativeButton("取消", null).showStyled()
                                     }
                                     redraw(search.text.toString())
-                                }.setNegativeButton("取消", null).show()
+                                }.setNegativeButton("取消", null).showStyled()
                                 true
                             }
                         }
@@ -431,9 +432,9 @@ class MainActivity : ComponentActivity() {
                 2 -> { scanningFolder = work.folder; scanFolder(work.folder) }
                 3 -> android.app.AlertDialog.Builder(this).setMessage("确定从作品库删除“${work.title}”？").setPositiveButton("删除") { _, _ ->
                     works.removeAll { it.folder == work.folder }; saveWorks(); renderLibrary()
-                }.setNegativeButton("取消", null).show()
+                }.setNegativeButton("取消", null).showStyled()
             }
-        }.setNegativeButton("取消", null).show()
+        }.setNegativeButton("取消", null).showStyled()
     }
 
     private fun showEditWork(work: LocalWork) {
@@ -453,7 +454,7 @@ class MainActivity : ComponentActivity() {
                 android.app.AlertDialog.Builder(this).setTitle("选择封面").setItems(names) { _, index ->
                     selectedCover = work.arts[index]
                     coverButton.text = "选择封面（当前：${names[index]}）"
-                }.setNegativeButton("取消", null).show()
+                }.setNegativeButton("取消", null).showStyled()
             }
         }
         box.addView(label("作品名称", 12, 0xFF8A7E95.toInt(), true))
@@ -475,7 +476,7 @@ class MainActivity : ComponentActivity() {
                         tags = tags.text.toString().split(",").map { it.trim() }.filter { it.isNotBlank() })
                     saveWorks(); renderLibrary()
                 }
-            }.setNegativeButton("取消", null).show()
+            }.setNegativeButton("取消", null).showStyled()
     }
 
     private fun scanFolder(uri: Uri) {
@@ -616,8 +617,15 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    private fun saveScriptScrollPosition() {
+        if (currentScreen == "script") {
+            (content.getChildAt(0) as? ScrollView)?.let { scriptScrollY = it.scrollY }
+        }
+    }
+
     private fun loadScript() {
-        val previousScrollY = if (currentScreen == "script") (content.getChildAt(0) as? ScrollView)?.scrollY ?: scriptScrollY else scriptScrollY
+        saveScriptScrollPosition()
+        val previousScrollY = scriptScrollY
         currentScreen = "script"
         if (scripts.isEmpty()) {
             Toast.makeText(this, "这个作品没有导入台本。", Toast.LENGTH_SHORT).show()
@@ -626,7 +634,9 @@ class MainActivity : ComponentActivity() {
             return
         }
         content.removeAllViews()
-        val scroll = ScrollView(this)
+        val scroll = ScrollView(this).apply {
+            setOnScrollChangeListener { _, _, y, _, _ -> scriptScrollY = y }
+        }
         val body = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; background = android.graphics.drawable.GradientDrawable().apply { setColor(0xFFFCFAFD.toInt()); cornerRadius = dp(18).toFloat() } }
         scroll.addView(body)
         content.addView(scroll, LinearLayout.LayoutParams(-1, 0, 1f))
@@ -921,7 +931,7 @@ class MainActivity : ComponentActivity() {
                 override fun onStartTrackingTouch(s: SeekBar?) {}
                 override fun onStopTrackingTouch(s: SeekBar?) {}
             })
-            android.app.AlertDialog.Builder(this@MainActivity).setView(box).setPositiveButton("完成", null).show()
+            android.app.AlertDialog.Builder(this@MainActivity).setView(box).setPositiveButton("完成", null).showStyled()
         }
     }
 
@@ -929,7 +939,29 @@ class MainActivity : ComponentActivity() {
         android.app.AlertDialog.Builder(this)
             .setTitle("设置")
             .setItems(arrayOf("导入作品文件夹", "返回作品库")) { _, which -> if (which == 0) { scanningFolder = null; pickFolder.launch(null) } else renderLibrary() }
-            .setNegativeButton("关闭", null).show()
+            .setNegativeButton("关闭", null).showStyled()
+    }
+
+    private fun android.app.AlertDialog.Builder.showStyled(): android.app.AlertDialog {
+        val dialog = create()
+        dialog.setOnShowListener {
+            val surface = android.graphics.drawable.GradientDrawable().apply {
+                setColor(0xFFFAF8FC.toInt())
+                cornerRadius = dp(20).toFloat()
+                setStroke(dp(1), 0xFFEAE3F0.toInt())
+            }
+            dialog.window?.setBackgroundDrawable(surface)
+            dialog.getButton(android.app.AlertDialog.BUTTON_POSITIVE)?.setTextColor(0xFF806B9A.toInt())
+            dialog.getButton(android.app.AlertDialog.BUTTON_NEGATIVE)?.setTextColor(0xFF806B9A.toInt())
+            dialog.getButton(android.app.AlertDialog.BUTTON_NEUTRAL)?.setTextColor(0xFF806B9A.toInt())
+            dialog.listView?.apply {
+                setBackgroundColor(0xFFFAF8FC.toInt())
+                divider = android.graphics.drawable.ColorDrawable(0xFFEAE3F0.toInt())
+                dividerHeight = dp(1)
+            }
+        }
+        dialog.show()
+        return dialog
     }
 
     private fun button(text: String) = Button(this).apply {
