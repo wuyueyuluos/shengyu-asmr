@@ -427,7 +427,15 @@ class MainActivity : ComponentActivity() {
                 }.setNegativeButton("取消", null).show()
             }
         }
-        box.addView(title); box.addView(coverButton); box.addView(cv); box.addView(circle); box.addView(tags)
+        box.addView(label("作品名称", 12, 0xFF8A7E95.toInt(), true))
+        box.addView(title, LinearLayout.LayoutParams(-1, dp(48)).apply { bottomMargin = dp(10) })
+        box.addView(coverButton, LinearLayout.LayoutParams(-1, dp(46)).apply { bottomMargin = dp(10) })
+        box.addView(label("CV", 12, 0xFF8A7E95.toInt(), true))
+        box.addView(cv, LinearLayout.LayoutParams(-1, dp(48)).apply { bottomMargin = dp(10) })
+        box.addView(label("社团", 12, 0xFF8A7E95.toInt(), true))
+        box.addView(circle, LinearLayout.LayoutParams(-1, dp(48)).apply { bottomMargin = dp(10) })
+        box.addView(label("自定义标签 · 逗号分隔", 12, 0xFF8A7E95.toInt(), true))
+        box.addView(tags, LinearLayout.LayoutParams(-1, dp(48)))
         android.app.AlertDialog.Builder(this).setTitle("编辑作品信息").setView(ScrollView(this).apply { addView(box) })
             .setPositiveButton("保存") { _, _ ->
                 val i = works.indexOfFirst { it.folder == work.folder }
