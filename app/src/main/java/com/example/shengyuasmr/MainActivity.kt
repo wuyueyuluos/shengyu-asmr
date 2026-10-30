@@ -110,6 +110,7 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun renderLibrary() {
+        root.setBackgroundColor(0xFFF8F5FA.toInt())
         currentScreen = "library"
         content.removeAllViews()
         val brand = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setPadding(dp(2), dp(4), dp(2), dp(12)) }
@@ -210,6 +211,7 @@ class MainActivity : ComponentActivity() {
 
     private fun renderHome() {
         saveScriptScrollPosition()
+        updatePlaybackBackground()
         currentScreen = "home"
         content.removeAllViews()
         val heading = LinearLayout(this).apply {
@@ -299,6 +301,48 @@ class MainActivity : ComponentActivity() {
             true
         }
         renderBottomControls()
+    }
+
+    /**
+     * Uses the currently selected illustration as a soft, full-screen playback backdrop.
+     * The source is decoded at a small size to keep memory and CPU use modest on older phones.
+     */
+    private fun updatePlaybackBackground() {
+        val uri = artworks.getOrNull(currentArt % artworks.size)
+        if (uri == null) {
+            root.setBackgroundColor(0xFFF8F5FA.toInt())
+            return
+        }
+        try {
+            val options = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+            contentResolver.openInputStream(uri)?.use { BitmapFactory.decodeStream(it, null, options) }
+            options.inJustDecodeBounds = false
+            options.inSampleSize = maxOf(1, minOf(options.outWidth / 180, options.outHeight / 300))
+            val source = contentResolver.openInputStream(uri)?.use { BitmapFactory.decodeStream(it, null, options) }
+            if (source == null) {
+                root.setBackgroundColor(0xFFF8F5FA.toInt())
+                return
+            }
+            // Small down/up scaling creates a lightweight blur-like diffusion on Android 10+,
+            // without relying on RenderEffect (which is only available on Android 12+).
+            val smallW = 56
+            val smallH = maxOf(72, (source.height.toFloat() / source.width * smallW).toInt().coerceAtMost(180))
+            val small = Bitmap.createScaledBitmap(source, smallW, smallH, true)
+            val softened = Bitmap.createScaledBitmap(small, 360, 720, true)
+            if (small !== source && !small.isRecycled) small.recycle()
+            if (source !== softened && !source.isRecycled) source.recycle()
+
+            val backdrop = android.graphics.drawable.BitmapDrawable(resources, softened).apply {
+                gravity = Gravity.FILL
+            }
+            val shade = android.graphics.drawable.GradientDrawable(
+                android.graphics.drawable.GradientDrawable.Orientation.TOP_BOTTOM,
+                intArrayOf(0x66F8F5FA, 0x55F8F5FA, 0xAA241C30.toInt())
+            )
+            root.background = android.graphics.drawable.LayerDrawable(arrayOf(backdrop, shade))
+        } catch (_: Exception) {
+            root.setBackgroundColor(0xFFF8F5FA.toInt())
+        }
     }
 
     private fun artworkTint(bitmap: Bitmap): Int {
