@@ -956,8 +956,20 @@ class MainActivity : ComponentActivity() {
             dialog.getButton(android.app.AlertDialog.BUTTON_NEUTRAL)?.setTextColor(0xFF806B9A.toInt())
             dialog.listView?.apply {
                 setBackgroundColor(0xFFFAF8FC.toInt())
-                divider = android.graphics.drawable.ColorDrawable(0xFFEAE3F0.toInt())
-                dividerHeight = dp(1)
+                divider = null
+                dividerHeight = 0
+            }
+            val titleView = dialog.findViewById<TextView>(android.R.id.title)
+            val titleContainer = titleView?.parent as? android.view.ViewGroup
+            val topPanel = titleContainer?.parent as? android.view.ViewGroup
+            if (titleContainer != null && topPanel != null && titleContainer.parent === topPanel) {
+                val divider = View(this@MainActivity).apply {
+                    setBackgroundColor(0xFFEAE3F0.toInt())
+                }
+                val dividerIndex = topPanel.indexOfChild(titleContainer) + 1
+                if (dividerIndex in 0..topPanel.childCount) {
+                    topPanel.addView(divider, dividerIndex, android.view.ViewGroup.LayoutParams(-1, dp(1)))
+                }
             }
         }
         dialog.show()
