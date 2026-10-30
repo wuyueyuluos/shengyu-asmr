@@ -213,52 +213,78 @@ class MainActivity : ComponentActivity() {
         content.removeAllViews()
         val heading = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            setPadding(dp(14), dp(12), dp(14), dp(12))
+            setPadding(dp(14), dp(12), dp(14), dp(10))
             background = android.graphics.drawable.GradientDrawable().apply {
                 setColor(0xFFFAF8FC.toInt())
-                cornerRadius = dp(16).toFloat()
-                setStroke(dp(1), 0xFFEAE3F0.toInt())
+                cornerRadius = dp(18).toFloat()
             }
         }
         heading.addView(label("NOW PLAYING  ·  正在聆听", 9, 0xFF9A8EA4.toInt(), true))
-        heading.addView(label(currentFolderName, 17, 0xFF51435F.toInt(), true).apply {
+        heading.addView(label(currentFolderName, 18, 0xFF51435F.toInt(), true).apply {
             maxLines = 2
             ellipsize = android.text.TextUtils.TruncateAt.END
-            setPadding(0, dp(4), 0, dp(4))
+            setPadding(0, dp(4), 0, dp(5))
         })
+        val counts = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+        }
+        fun addCount(glyph: String, count: Int) {
+            counts.addView(label("$glyph  $count", 12, 0xFF81758F.toInt()).apply {
+                setPadding(0, 0, dp(18), 0)
+            })
+        }
+        addCount("♫", tracks.size)
+        addCount("▧", artworks.size)
+        addCount("▤", scripts.size)
+        heading.addView(counts)
         val trackName = tracks.getOrNull(currentTrack)?.name ?: "尚未选择音轨"
-        heading.addView(label(trackName, 12, 0xFF796B86.toInt()).apply {
+        heading.addView(label(trackName, 11, 0xFF9A8EA4.toInt()).apply {
             maxLines = 1
             ellipsize = android.text.TextUtils.TruncateAt.END
+            setPadding(0, dp(5), 0, 0)
         })
-        val detail = label(if (tracks.isEmpty()) "先导入一个作品文件夹，应用会帮你识别音频、插画和台本。" else "${tracks.size} 条音轨  ·  ${artworks.size} 张插画  ·  ${scripts.size} 份台本", 10, 0xFF9A8EA4.toInt())
-        detail.setPadding(0, dp(7), 0, 0)
-        heading.addView(detail)
         content.addView(heading, LinearLayout.LayoutParams(-1, -2).apply { bottomMargin = dp(8) })
+
         val artFrame = FrameLayout(this).apply {
             clipToPadding = true
             clipChildren = true
             background = android.graphics.drawable.GradientDrawable().apply {
-                setColor(0xFFFAF8FC.toInt())
-                cornerRadius = dp(20).toFloat()
-                setStroke(dp(1), 0xFFEAE3F0.toInt())
+                setColor(0xFFF0EAF5.toInt())
+                cornerRadius = dp(22).toFloat()
             }
-            setPadding(dp(8), dp(10), dp(8), dp(10))
-            elevation = dp(1).toFloat()
+            setPadding(dp(7), dp(8), dp(7), dp(8))
         }
-        val art = ImageView(this).apply { scaleType = ImageView.ScaleType.FIT_CENTER; setPadding(0, 0, 0, 0) }
+        val art = ImageView(this).apply {
+            scaleType = ImageView.ScaleType.FIT_CENTER
+            setPadding(0, 0, 0, 0)
+            background = android.graphics.drawable.GradientDrawable().apply {
+                setColor(android.graphics.Color.TRANSPARENT)
+                cornerRadius = dp(17).toFloat()
+            }
+            clipToOutline = true
+        }
         if (artworks.isNotEmpty()) {
-            try { contentResolver.openInputStream(artworks[currentArt % artworks.size])?.use { art.setImageBitmap(BitmapFactory.decodeStream(it)) } } catch (_: Exception) {}
+            try {
+                contentResolver.openInputStream(artworks[currentArt % artworks.size])?.use {
+                    val bitmap = BitmapFactory.decodeStream(it)
+                    if (bitmap != null) {
+                        art.setImageBitmap(bitmap)
+                        artFrame.background = android.graphics.drawable.GradientDrawable().apply {
+                            setColor(artworkTint(bitmap))
+                            cornerRadius = dp(22).toFloat()
+                        }
+                    }
+                }
+            } catch (_: Exception) { }
         } else {
             art.setImageResource(android.R.drawable.ic_menu_gallery)
         }
         artFrame.addView(art, FrameLayout.LayoutParams(-1, -1))
         val artLp = LinearLayout.LayoutParams(-1, dp(420)).apply {
             gravity = Gravity.CENTER_HORIZONTAL
-            topMargin = dp(12)
-            bottomMargin = dp(6)
-            marginStart = dp(-6)
-            marginEnd = dp(-6)
+            topMargin = dp(10)
+            bottomMargin = dp(8)
         }
         content.addView(artFrame, artLp)
         art.setOnClickListener {
@@ -274,6 +300,29 @@ class MainActivity : ComponentActivity() {
         renderBottomControls()
     }
 
+    private fun artworkTint(bitmap: Bitmap): Int {
+        val sample = Bitmap.createScaledBitmap(bitmap, 24, 24, true)
+        val pixels = IntArray(24 * 24)
+        sample.getPixels(pixels, 0, 24, 0, 0, 24, 24)
+        var red = 0L
+        var green = 0L
+        var blue = 0L
+        var count = 0L
+        pixels.forEach { color ->
+            if (android.graphics.Color.alpha(color) > 24) {
+                red += android.graphics.Color.red(color)
+                green += android.graphics.Color.green(color)
+                blue += android.graphics.Color.blue(color)
+                count++
+            }
+        }
+        if (sample !== bitmap && !sample.isRecycled) sample.recycle()
+        if (count == 0L) return 0x55DCCFE8
+        val r = ((red / count) * 0.24 + 255 * 0.76).toInt().coerceIn(0, 255)
+        val g = ((green / count) * 0.24 + 255 * 0.76).toInt().coerceIn(0, 255)
+        val b = ((blue / count) * 0.24 + 255 * 0.76).toInt().coerceIn(0, 255)
+        return android.graphics.Color.argb(125, r, g, b)
+    }
 
     private fun filteredWorks(): List<LocalWork> {
         return when (libraryFilter) {
@@ -706,10 +755,30 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun renderBottomControls() {
-        val progressRow = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setPadding(0, dp(2), 0, dp(4)) }
-        val times = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL }
-        elapsedLabel = label("0:00", 12, 0xFF81798F.toInt())
-        durationLabel = label("0:00", 12, 0xFF81798F.toInt())
+        if (scripts.isNotEmpty()) {
+            val scriptToggle = TextView(this).apply {
+                text = if (showScript) "返回插画  ↑" else "查看台本  ↓"
+                textSize = 11f
+                gravity = Gravity.END or Gravity.CENTER_VERTICAL
+                setTextColor(0xFF88749F.toInt())
+                setPadding(dp(8), dp(2), dp(4), dp(2))
+                setOnClickListener {
+                    showScript = !showScript
+                    if (showScript) loadScript() else renderHome()
+                }
+            }
+            content.addView(scriptToggle, LinearLayout.LayoutParams(-1, dp(28)))
+        }
+        val progressRow = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(2), dp(2), dp(2), dp(4))
+        }
+        val times = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+        }
+        elapsedLabel = label("0:00", 11, 0xFF81798F.toInt())
+        durationLabel = label("0:00", 11, 0xFF81798F.toInt())
         times.addView(elapsedLabel, LinearLayout.LayoutParams(0, -2, 1f))
         durationLabel?.gravity = Gravity.END
         times.addView(durationLabel)
@@ -734,25 +803,30 @@ class MainActivity : ComponentActivity() {
         content.addView(progressRow)
         progressHandler.removeCallbacks(progressUpdater)
         progressHandler.post(progressUpdater)
-        val row = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER; setPadding(0, dp(6), 0, dp(2)) }
-        fun addControl(title: String, action: () -> Unit, primary: Boolean = false) {
+
+        val row = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER
+            setPadding(0, dp(5), 0, dp(2))
+        }
+        fun addControl(glyph: String, action: () -> Unit, primary: Boolean = false) {
             val control = TextView(this).apply {
-                text = title
-                textSize = if (primary) 14f else 10f
+                text = glyph
+                textSize = if (primary) 25f else 22f
                 gravity = Gravity.CENTER
-                setTextColor(if (primary) 0xFFFFFFFF.toInt() else 0xFF6D5D7D.toInt())
+                setTextColor(if (primary) 0xFFFFFFFF.toInt() else 0xFF514A62.toInt())
                 background = android.graphics.drawable.GradientDrawable().apply {
-                    cornerRadius = dp(if (primary) 18 else 14).toFloat()
-                    setColor(if (primary) 0xFF927DAA.toInt() else 0xFFEDE5F2.toInt())
+                    shape = android.graphics.drawable.GradientDrawable.OVAL
+                    setColor(if (primary) 0xFF927DAA.toInt() else android.graphics.Color.TRANSPARENT)
                 }
-                elevation = dp(if (primary) 3 else 1).toFloat()
+                if (primary) elevation = dp(3).toFloat()
                 setOnClickListener { action() }
             }
-            row.addView(control, LinearLayout.LayoutParams(0, dp(if (primary) 54 else 48), 1f).apply { setMargins(dp(3), 0, dp(3), 0) })
+            row.addView(control, LinearLayout.LayoutParams(0, dp(if (primary) 64 else 54), 1f))
         }
-        addControl("☷\n音轨", { showTrackList() })
-        addControl("↶ 15秒", { player?.let { it.seekTo((it.currentPosition - 15000).coerceAtLeast(0)) } })
-        addControl(if (player?.isPlaying == true) "Ⅱ\n暂停" else "▶\n播放", {
+        addControl("☷", { showTrackList() })
+        addControl("|◀", { if (tracks.isNotEmpty()) playTrack((currentTrack - 1).coerceAtLeast(0)) })
+        addControl(if (player?.isPlaying == true) "Ⅱ" else "▶", {
             if (player?.isPlaying == true) {
                 player?.pause()
                 if (showScript) loadScript() else renderHome()
@@ -761,16 +835,8 @@ class MainActivity : ComponentActivity() {
                 if (showScript) loadScript() else renderHome()
             } else if (tracks.isNotEmpty()) playTrack(0)
         }, true)
-        addControl("15秒 ↷", { player?.let { it.seekTo((it.currentPosition + 15000).coerceAtMost(it.duration)) } })
-        addControl("▤\n台本", {
-            if (showScript) {
-                showScript = false
-                renderHome()
-            } else if (scripts.isNotEmpty()) {
-                showScript = true
-                loadScript()
-            } else Toast.makeText(this, "这个作品没有台本。", Toast.LENGTH_SHORT).show()
-        })
+        addControl("▶|", { if (tracks.isNotEmpty()) playTrack((currentTrack + 1).coerceAtMost(tracks.lastIndex)) })
+        addControl("◖))", { showVolume() })
         content.addView(row)
     }
 
