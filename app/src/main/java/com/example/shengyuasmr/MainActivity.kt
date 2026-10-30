@@ -549,26 +549,29 @@ class MainActivity : ComponentActivity() {
         val returnScreen = if (showScript) "script" else "home"
         val panel = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setPadding(dp(14), dp(8), dp(14), dp(10)); setBackgroundColor(0xFFF7F4FB.toInt()) }
         panel.addView(View(this).apply { setBackgroundColor(0xFFB9AEC8.toInt()) }, LinearLayout.LayoutParams(dp(42), dp(4)).apply { gravity = Gravity.CENTER; bottomMargin = dp(10) })
-        panel.addView(label("音轨列表", 17, 0xFF3E3552.toInt(), true).apply { setPadding(dp(4), 0, 0, dp(8)) })
+        panel.addView(label("音轨列表", 18, 0xFF51435F.toInt(), true).apply { setPadding(dp(4), 0, 0, dp(3)) })
         val scroll = ScrollView(this)
         val list = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
         fun refreshRows() {
             list.removeAllViews()
             tracks.forEachIndexed { i, t ->
-                val row = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL }
-                val rowLp = LinearLayout.LayoutParams(-1, dp(48)).apply { bottomMargin = dp(6) }
+                val isCurrent = i == currentTrack
+                val row = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL; background = android.graphics.drawable.GradientDrawable().apply { setColor(if (isCurrent) 0xFFECE4F3.toInt() else 0xFFFCFAFD.toInt()); cornerRadius = dp(13).toFloat(); setStroke(dp(1), if (isCurrent) 0xFFCDBDDE.toInt() else 0xFFEAE3F0.toInt()) } }
+                val rowLp = LinearLayout.LayoutParams(-1, dp(52)).apply { bottomMargin = dp(7) }
                 row.addView(TextView(this).apply {
                     text = "${if (i == currentTrack) "▶ " else ""}${i + 1}. ${t.name}"
-                    textSize = 14f
+                    textSize = 13f
                     gravity = Gravity.START or Gravity.CENTER_VERTICAL
                     setPadding(dp(10), 0, dp(6), 0)
-                    setTextColor(0xFF5C4D79.toInt())
-                    setBackgroundColor(0xFFE8E0F1.toInt())
+                    setTextColor(if (isCurrent) 0xFF59456F.toInt() else 0xFF6D6278.toInt())
+                    setTypeface(typeface, if (isCurrent) android.graphics.Typeface.BOLD else android.graphics.Typeface.NORMAL)
+                    maxLines = 1
+                    ellipsize = android.text.TextUtils.TruncateAt.MIDDLE
                     elevation = dp(2).toFloat()
                     setOnClickListener { dialog.dismiss(); currentScreen = returnScreen; playTrack(i) }
                 }, LinearLayout.LayoutParams(0, dp(48), 1f))
                 row.addView(TextView(this).apply {
-                    text = "⠿"; textSize = 20f; gravity = Gravity.CENTER; setTextColor(0xFF5C4D79.toInt()); setBackgroundColor(0xFFE8E0F1.toInt()); minimumWidth = 0; minimumHeight = 0
+                    text = "⠿"; textSize = 20f; gravity = Gravity.CENTER; setTextColor(0xFF9487A1.toInt()); minimumWidth = 0; minimumHeight = 0
                     setOnLongClickListener { view -> view.startDragAndDrop(android.content.ClipData.newPlainText("track-index", i.toString()), View.DragShadowBuilder(view), i, 0); true }
                     setOnDragListener { _, event ->
                         if (event.action == android.view.DragEvent.ACTION_DROP) {
