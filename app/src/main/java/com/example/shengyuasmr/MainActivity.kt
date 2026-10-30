@@ -572,7 +572,7 @@ class MainActivity : ComponentActivity() {
         }
         content.removeAllViews()
         val scroll = ScrollView(this)
-        val body = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
+        val body = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; background = android.graphics.drawable.GradientDrawable().apply { setColor(0xFFFCFAFD.toInt()); cornerRadius = dp(18).toFloat() } }
         scroll.addView(body)
         content.addView(scroll, LinearLayout.LayoutParams(-1, 0, 1f))
         val uri = scripts.first()
@@ -605,10 +605,11 @@ class MainActivity : ComponentActivity() {
             } catch (_: Exception) { currentScriptText = "暂时无法读取这份台本。" }
             body.addView(TextView(this).apply {
                 text = currentScriptText
-                textSize = 16f
-                setTextColor(0xFF4C435B.toInt())
-                setLineSpacing(dp(5).toFloat(), 1.05f)
-                setPadding(dp(8), dp(12), dp(8), dp(12))
+                textSize = 17f
+                setTextColor(0xFF51475B.toInt())
+                setLineSpacing(dp(7).toFloat(), 1.08f)
+                setPadding(dp(18), dp(18), dp(18), dp(24))
+                letterSpacing = 0.015f
             })
         }
         scroll.post { scroll.scrollTo(0, previousScrollY); scriptScrollY = previousScrollY }
