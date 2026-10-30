@@ -660,11 +660,12 @@ class MainActivity : ComponentActivity() {
             } catch (_: Exception) { currentScriptText = "暂时无法读取这份台本。" }
             body.addView(TextView(this).apply {
                 text = currentScriptText
-                textSize = 17f
+                textSize = 17.5f
                 setTextColor(0xFF51475B.toInt())
-                setLineSpacing(dp(7).toFloat(), 1.08f)
-                setPadding(dp(18), dp(18), dp(18), dp(24))
-                letterSpacing = 0.015f
+                gravity = Gravity.START
+                setLineSpacing(dp(9).toFloat(), 1.12f)
+                setPadding(dp(20), dp(22), dp(20), dp(30))
+                letterSpacing = 0.02f
             })
         }
         scroll.post { scroll.scrollTo(0, previousScrollY); scriptScrollY = previousScrollY }
