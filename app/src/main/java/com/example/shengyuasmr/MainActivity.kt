@@ -96,15 +96,9 @@ class MainActivity : ComponentActivity() {
     private fun buildShell() {
         root = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            setPadding(dp(18), dp(14), dp(18), dp(10))
+            setPadding(dp(18), dp(2), dp(18), dp(8))
             setBackgroundColor(0xFFF7F4FB.toInt())
         }
-        val header = LinearLayout(this).apply { gravity = Gravity.CENTER_VERTICAL; orientation = LinearLayout.HORIZONTAL }
-        header.addView(View(this), LinearLayout.LayoutParams(0, dp(18), 1f))
-        val menu = button("☰")
-        menu.setOnClickListener { showSettings() }
-        header.addView(menu)
-        root.addView(header)
         content = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
         root.addView(content, LinearLayout.LayoutParams(-1, 0, 1f))
         setContentView(root)
@@ -183,29 +177,37 @@ class MainActivity : ComponentActivity() {
             scroll.addView(list)
             content.addView(scroll, LinearLayout.LayoutParams(-1, 0, 1f))
         }
-        content.addView(button("＋ 导入作品文件夹").apply {
+        val importArea = FrameLayout(this)
+        val importButton = button("+").apply {
+            textSize = 26f
+            setPadding(0, 0, 0, 0)
             setOnClickListener { scanningFolder = null; pickFolder.launch(null) }
-        })
+        }
+        importArea.addView(importButton, FrameLayout.LayoutParams(dp(58), dp(58), Gravity.END or Gravity.BOTTOM))
+        content.addView(importArea, LinearLayout.LayoutParams(-1, dp(64)))
     }
 
     private fun renderHome() {
         currentScreen = "home"
         content.removeAllViews()
         val title = label(currentFolderName, 20, 0xFF3E3552.toInt(), true)
-        title.setPadding(0, dp(2), 0, dp(8))
+        title.setPadding(0, 0, 0, dp(4))
         content.addView(title)
         content.addView(label(if (tracks.isEmpty()) "先导入一个作品文件夹，应用会帮你识别音频、插画和台本。" else "已识别 ${tracks.size} 条音轨 · ${artworks.size} 张插画 · ${scripts.size} 份台本", 14, 0xFF81798F.toInt()))
-        val artFrame = FrameLayout(this).apply {
-            setBackgroundColor(0xFFE9E2F1.toInt())
-        }
-        val art = ImageView(this).apply { scaleType = ImageView.ScaleType.FIT_CENTER; setPadding(dp(8), dp(8), dp(8), dp(8)) }
+        val artFrame = FrameLayout(this)
+        val art = ImageView(this).apply { scaleType = ImageView.ScaleType.FIT_CENTER; setPadding(0, 0, 0, 0) }
         if (artworks.isNotEmpty()) {
             try { contentResolver.openInputStream(artworks[currentArt % artworks.size])?.use { art.setImageBitmap(BitmapFactory.decodeStream(it)) } } catch (_: Exception) {}
         } else {
             art.setImageResource(android.R.drawable.ic_menu_gallery)
         }
         artFrame.addView(art, FrameLayout.LayoutParams(-1, -1))
-        val artLp = LinearLayout.LayoutParams(-1, 0, 1f).apply { topMargin = dp(18); bottomMargin = dp(14) }
+        val artLp = LinearLayout.LayoutParams(-1, 0, 1f).apply {
+            topMargin = dp(12)
+            bottomMargin = dp(6)
+            marginStart = dp(-6)
+            marginEnd = dp(-6)
+        }
         content.addView(artFrame, artLp)
         art.setOnClickListener {
             if (artworks.size > 1) {
@@ -347,9 +349,14 @@ class MainActivity : ComponentActivity() {
             tracks.forEachIndexed { i, t ->
                 val row = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL }
                 val rowLp = LinearLayout.LayoutParams(-1, dp(48)).apply { bottomMargin = dp(6) }
-                row.addView(button("${if (i == currentTrack) "▶ " else ""}${i + 1}. ${t.name}").apply {
+                row.addView(TextView(this).apply {
+                    text = "${if (i == currentTrack) "▶ " else ""}${i + 1}. ${t.name}"
+                    textSize = 14f
                     gravity = Gravity.START or Gravity.CENTER_VERTICAL
-                    setPadding(dp(10), 0, dp(2), 0)
+                    setPadding(dp(10), 0, dp(6), 0)
+                    setTextColor(0xFF5C4D79.toInt())
+                    setBackgroundColor(0xFFE8E0F1.toInt())
+                    elevation = dp(2).toFloat()
                     setOnClickListener { dialog.dismiss(); currentScreen = returnScreen; playTrack(i) }
                 }, LinearLayout.LayoutParams(0, dp(48), 1f))
                 row.addView(TextView(this).apply {
@@ -407,7 +414,6 @@ class MainActivity : ComponentActivity() {
             return
         }
         content.removeAllViews()
-        content.addView(label("台本", 22, 0xFF3E3552.toInt(), true))
         val scroll = ScrollView(this)
         val body = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
         scroll.addView(body)
