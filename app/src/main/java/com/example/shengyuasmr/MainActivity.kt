@@ -674,18 +674,25 @@ class MainActivity : ComponentActivity() {
         content.addView(progressRow)
         progressHandler.removeCallbacks(progressUpdater)
         progressHandler.post(progressUpdater)
-        val row = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER }
-        fun addControl(title: String, action: () -> Unit) {
-            row.addView(button(title).apply {
-                textSize = 11f
-                minWidth = 0
-                setPadding(dp(2), dp(4), dp(2), dp(4))
+        val row = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER; setPadding(0, dp(6), 0, dp(2)) }
+        fun addControl(title: String, action: () -> Unit, primary: Boolean = false) {
+            val control = TextView(this).apply {
+                text = title
+                textSize = if (primary) 14f else 10f
+                gravity = Gravity.CENTER
+                setTextColor(if (primary) 0xFFFFFFFF.toInt() else 0xFF6D5D7D.toInt())
+                background = android.graphics.drawable.GradientDrawable().apply {
+                    cornerRadius = dp(if (primary) 18 else 14).toFloat()
+                    setColor(if (primary) 0xFF927DAA.toInt() else 0xFFEDE5F2.toInt())
+                }
+                elevation = dp(if (primary) 3 else 1).toFloat()
                 setOnClickListener { action() }
-            }, LinearLayout.LayoutParams(0, -2, 1f))
+            }
+            row.addView(control, LinearLayout.LayoutParams(0, dp(if (primary) 54 else 48), 1f).apply { setMargins(dp(3), 0, dp(3), 0) })
         }
-        addControl("音轨列表") { showTrackList() }
-        addControl("倒退 15秒") { player?.let { it.seekTo((it.currentPosition - 15000).coerceAtLeast(0)) } }
-        addControl(if (player?.isPlaying == true) "暂停" else "播放") {
+        addControl("☷\n音轨", { showTrackList() })
+        addControl("↶ 15秒", { player?.let { it.seekTo((it.currentPosition - 15000).coerceAtLeast(0)) } })
+        addControl(if (player?.isPlaying == true) "Ⅱ\n暂停" else "▶\n播放", {
             if (player?.isPlaying == true) {
                 player?.pause()
                 if (showScript) loadScript() else renderHome()
@@ -693,9 +700,9 @@ class MainActivity : ComponentActivity() {
                 player?.start()
                 if (showScript) loadScript() else renderHome()
             } else if (tracks.isNotEmpty()) playTrack(0)
-        }
-        addControl("前进 15秒") { player?.let { it.seekTo((it.currentPosition + 15000).coerceAtMost(it.duration)) } }
-        addControl("台本") {
+        }, true)
+        addControl("15秒 ↷", { player?.let { it.seekTo((it.currentPosition + 15000).coerceAtMost(it.duration)) } })
+        addControl("▤\n台本", {
             if (showScript) {
                 showScript = false
                 renderHome()
@@ -703,7 +710,7 @@ class MainActivity : ComponentActivity() {
                 showScript = true
                 loadScript()
             } else Toast.makeText(this, "这个作品没有台本。", Toast.LENGTH_SHORT).show()
-        }
+        })
         content.addView(row)
     }
 
