@@ -292,11 +292,13 @@ class MainActivity : ComponentActivity() {
         val dialog = Dialog(this)
         val panel = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            setPadding(dp(16), dp(12), dp(16), dp(14))
-            background = android.graphics.drawable.GradientDrawable().apply { setColor(0xF7F7F4FB.toInt()); cornerRadius = dp(22).toFloat() }
+            setPadding(dp(18), dp(12), dp(18), dp(16))
+            background = android.graphics.drawable.GradientDrawable().apply { setColor(0xFFFAF8FC.toInt()); cornerRadius = dp(24).toFloat() }
         }
+        panel.addView(View(this).apply { background = android.graphics.drawable.GradientDrawable().apply { setColor(0xFFD9D0E2.toInt()); cornerRadius = dp(3).toFloat() } }, LinearLayout.LayoutParams(dp(38), dp(5)).apply { gravity = Gravity.CENTER; bottomMargin = dp(10) })
+        panel.addView(label("标签筛选", 18, 0xFF51435F.toInt(), true).apply { setPadding(0, 0, 0, dp(8)) })
         val top = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL }
-        val search = EditText(this).apply { hint = "搜索标签"; setSingleLine(true) }
+        val search = EditText(this).apply { hint = "搜索标签"; setSingleLine(true); textSize = 14f; setPadding(dp(12), 0, dp(12), 0); background = android.graphics.drawable.GradientDrawable().apply { setColor(0xFFF0ECF4.toInt()); cornerRadius = dp(13).toFloat() } }
         top.addView(search, LinearLayout.LayoutParams(0, dp(48), 1f))
         val editButton = button("编辑").apply { textSize = 12f }
         top.addView(editButton, LinearLayout.LayoutParams(dp(64), dp(44)))
