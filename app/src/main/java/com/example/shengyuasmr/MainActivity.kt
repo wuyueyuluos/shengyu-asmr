@@ -125,7 +125,6 @@ class MainActivity : ComponentActivity() {
         heading.addView(View(this), LinearLayout.LayoutParams(0, 1, 1f))
         heading.addView(label(filteredWorks().size.toString() + " 部作品", 12, 0xFF91869B.toInt()))
         content.addView(heading, LinearLayout.LayoutParams(-1, dp(48)))
-        if (works.isEmpty()) content.addView(label("还没有作品。点击下方按钮，选择一个作品文件夹导入。", 14, 0xFF81798F.toInt()))
         if (works.isEmpty()) {
             val empty = TextView(this).apply {
                 text = "♫\n\n声屿还在等你的第一份声音。"
@@ -135,19 +134,19 @@ class MainActivity : ComponentActivity() {
             }
             content.addView(empty, LinearLayout.LayoutParams(-1, 0, 1f))
         } else {
-            val scroll = ScrollView(this)
-            val list = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
+            val scroll = ScrollView(this).apply { clipToPadding = false; setPadding(0, dp(8), 0, dp(8)) }
+            val list = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setPadding(dp(1), 0, dp(1), dp(8)) }
             filteredWorks().forEachIndexed { index, work ->
                 val row = LinearLayout(this).apply {
                     orientation = LinearLayout.HORIZONTAL
                     gravity = Gravity.CENTER_VERTICAL
-                    setPadding(dp(8), dp(8), dp(4), dp(8))
-                    background = android.graphics.drawable.GradientDrawable().apply { setColor(0xFFF0EAF5.toInt()); cornerRadius = dp(16).toFloat() }
-                    elevation = dp(1).toFloat()
+                    setPadding(dp(9), dp(9), dp(6), dp(9))
+                    background = android.graphics.drawable.GradientDrawable().apply { setColor(0xFFFAF8FC.toInt()); cornerRadius = dp(18).toFloat(); setStroke(dp(1), 0xFFEAE3F0.toInt()) }
+                    elevation = dp(2).toFloat()
                 }
                 val coverView = ImageView(this).apply {
                     scaleType = ImageView.ScaleType.CENTER_CROP
-                    background = android.graphics.drawable.GradientDrawable().apply { setColor(0xFFE5DCEB.toInt()); cornerRadius = dp(12).toFloat() }
+                    background = android.graphics.drawable.GradientDrawable().apply { setColor(0xFFEAE3F0.toInt()); cornerRadius = dp(13).toFloat() }
                     clipToOutline = true
                     val coverUri = work.cover ?: work.arts.firstOrNull()
                     if (coverUri != null) try { contentResolver.openInputStream(coverUri)?.use { setImageBitmap(BitmapFactory.decodeStream(it)) } } catch (_: Exception) {}
@@ -157,20 +156,24 @@ class MainActivity : ComponentActivity() {
                 val info = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setPadding(dp(10), 0, 0, 0) }
                 info.addView(TextView(this).apply {
                     text = work.title
-                    textSize = 16f
+                    textSize = 15f
                     setTextColor(0xFF45394F.toInt())
                     setTypeface(typeface, android.graphics.Typeface.BOLD)
-                    maxLines = 3
+                    maxLines = 2
+                    setLineSpacing(dp(2).toFloat(), 1.02f)
                     ellipsize = android.text.TextUtils.TruncateAt.END
                 })
-                info.addView(label("${work.tracks.size} 条音轨 · ${work.arts.size} 张插画 · ${work.scripts.size} 份台本", 11, 0xFF81798F.toInt()))
+                info.addView(label("${work.tracks.size} 音轨  ·  ${work.arts.size} 插画  ·  ${work.scripts.size} 台本", 10, 0xFF91869B.toInt()).apply { setPadding(0, dp(5), 0, 0) })
+                val categoryLine = listOf(work.cv, work.circle).filter { it.isNotBlank() }.joinToString("  ·  ")
+                if (categoryLine.isNotBlank()) info.addView(label(categoryLine, 10, 0xFF9A8EA4.toInt()).apply { maxLines = 1; ellipsize = android.text.TextUtils.TruncateAt.END; setPadding(0, dp(3), 0, 0) })
                 row.addView(info, LinearLayout.LayoutParams(0, dp(94), 1f))
                 row.addView(TextView(this).apply {
                     text = "⋮"
-                    textSize = 28f
+                    textSize = 25f
                     gravity = Gravity.CENTER
-                    setTextColor(0xFF5C4D79.toInt())
-                    setPadding(dp(4), 0, dp(4), 0)
+                    setTextColor(0xFF82738F.toInt())
+                    setPadding(dp(3), 0, dp(3), 0)
+                    background = android.graphics.drawable.GradientDrawable().apply { setColor(0xFFF2EDF6.toInt()); cornerRadius = dp(12).toFloat() }
                     setOnClickListener { showWorkMenu(work) }
                 }, LinearLayout.LayoutParams(dp(28), dp(94)))
                 row.setOnClickListener {
@@ -188,7 +191,7 @@ class MainActivity : ComponentActivity() {
                         if (currentTrack in tracks.indices) playTrack(currentTrack, saved.second) else renderHome()
                     } else { showScript = false; renderHome() }
                 }
-                val lp = LinearLayout.LayoutParams(-1, dp(110)).apply { topMargin = dp(10); marginStart = dp(2); marginEnd = dp(2) }
+                val lp = LinearLayout.LayoutParams(-1, dp(112)).apply { topMargin = dp(9); marginStart = dp(2); marginEnd = dp(2) }
                 list.addView(row, lp)
             }
             scroll.addView(list)
