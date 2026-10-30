@@ -787,6 +787,8 @@ class MainActivity : ComponentActivity() {
         }
         var lastX = 0f
         var lastY = 0f
+        var startX = 0f
+        var startY = 0f
         var moved = false
         val scaleDetector = ScaleGestureDetector(this, object : ScaleGestureDetector.SimpleOnScaleGestureListener() {
             override fun onScale(detector: ScaleGestureDetector): Boolean {
@@ -803,7 +805,7 @@ class MainActivity : ComponentActivity() {
         image.setOnTouchListener { _, event ->
             scaleDetector.onTouchEvent(event)
             when (event.actionMasked) {
-                MotionEvent.ACTION_DOWN -> { lastX = event.x; lastY = event.y; moved = false }
+                MotionEvent.ACTION_DOWN -> { lastX = event.x; lastY = event.y; startX = event.x; startY = event.y; moved = false }
                 MotionEvent.ACTION_POINTER_DOWN -> moved = true
                 MotionEvent.ACTION_MOVE -> {
                     if (!scaleDetector.isInProgress && event.pointerCount == 1 && currentScale > 1f) {
@@ -816,9 +818,11 @@ class MainActivity : ComponentActivity() {
                     lastX = event.x; lastY = event.y
                 }
                 MotionEvent.ACTION_UP -> {
-                    if (!moved && currentScale <= 1.01f) dialog.dismiss()
-                    else if (currentScale <= 1.01f && kotlin.math.abs(event.x - lastX) > dp(60) && artworks.size > 1) {
-                        index = if (event.x < lastX) (index + 1) % artworks.size else (index - 1 + artworks.size) % artworks.size
+                    val dx = event.x - startX
+                    val dy = event.y - startY
+                    if (!moved && kotlin.math.abs(dx) < dp(12) && kotlin.math.abs(dy) < dp(12) && currentScale <= 1.01f) dialog.dismiss()
+                    else if (currentScale <= 1.01f && kotlin.math.abs(dx) > dp(60) && kotlin.math.abs(dx) > kotlin.math.abs(dy) && artworks.size > 1) {
+                        index = if (dx < 0) (index + 1) % artworks.size else (index - 1 + artworks.size) % artworks.size
                         displayImage()
                     }
                 }
