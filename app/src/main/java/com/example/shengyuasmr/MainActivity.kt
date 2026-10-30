@@ -403,8 +403,8 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun showEditWork(work: LocalWork) {
-        val box = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setPadding(dp(20), dp(8), dp(20), dp(4)) }
-        fun field(hint: String, value: String) = EditText(this).apply { this.hint = hint; setText(value); setSingleLine(true) }
+        val box = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setPadding(dp(18), dp(12), dp(18), dp(8)) }
+        fun field(hint: String, value: String) = EditText(this).apply { this.hint = hint; setText(value); setSingleLine(true); textSize = 14f; setPadding(dp(12), dp(10), dp(12), dp(10)) }
         val title = field("作品名", work.title)
         val cv = field("CV", work.cv)
         val circle = field("社团", work.circle)
