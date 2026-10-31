@@ -218,9 +218,11 @@ class MainActivity : ComponentActivity() {
             orientation = LinearLayout.VERTICAL
             setPadding(dp(14), dp(12), dp(14), dp(10))
             background = android.graphics.drawable.GradientDrawable().apply {
-                setColor(0xFFFAF8FC.toInt())
+                setColor(android.graphics.Color.argb(224, 231, 222, 235))
                 cornerRadius = dp(18).toFloat()
+                setStroke(dp(1), android.graphics.Color.argb(105, 255, 255, 255))
             }
+            elevation = dp(2).toFloat()
         }
         heading.addView(label("NOW PLAYING  ·  正在聆听", 9, 0xFF9A8EA4.toInt(), true))
         heading.addView(label(currentFolderName, 18, 0xFF51435F.toInt(), true).apply {
@@ -388,11 +390,13 @@ class MainActivity : ComponentActivity() {
             val backdrop = android.graphics.drawable.BitmapDrawable(resources, blurred).apply {
                 gravity = Gravity.FILL
             }
+            // A subtle dark veil deepens the backdrop without dimming foreground controls.
+            val veil = android.graphics.drawable.ColorDrawable(android.graphics.Color.argb(38, 0, 0, 0))
             val shade = android.graphics.drawable.GradientDrawable(
                 android.graphics.drawable.GradientDrawable.Orientation.TOP_BOTTOM,
-                intArrayOf(0x35F8F5FA, 0x22F8F5FA, 0x99241C30.toInt())
+                intArrayOf(0x24F8F5FA, 0x14F8F5FA, 0x99241C30.toInt())
             )
-            root.background = android.graphics.drawable.LayerDrawable(arrayOf(backdrop, shade))
+            root.background = android.graphics.drawable.LayerDrawable(arrayOf(backdrop, veil, shade))
         } catch (_: Exception) {
             root.setBackgroundColor(0xFFF8F5FA.toInt())
         }
