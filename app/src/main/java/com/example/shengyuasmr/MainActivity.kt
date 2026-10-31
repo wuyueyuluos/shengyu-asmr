@@ -352,7 +352,7 @@ class MainActivity : ComponentActivity() {
             if (small !== cropped && !cropped.isRecycled) cropped.recycle()
             val pixels = IntArray(blurW * blurH)
             small.getPixels(pixels, 0, blurW, 0, 0, blurW, blurH)
-            val radius = 13
+            val radius = 7
             val horizontal = IntArray(pixels.size)
             for (y in 0 until blurH) {
                 for (x in 0 until blurW) {
@@ -390,7 +390,7 @@ class MainActivity : ComponentActivity() {
             }
             val shade = android.graphics.drawable.GradientDrawable(
                 android.graphics.drawable.GradientDrawable.Orientation.TOP_BOTTOM,
-                intArrayOf(0x66F8F5FA, 0x44F8F5FA, 0x99241C30.toInt())
+                intArrayOf(0x35F8F5FA, 0x22F8F5FA, 0x99241C30.toInt())
             )
             root.background = android.graphics.drawable.LayerDrawable(arrayOf(backdrop, shade))
         } catch (_: Exception) {
