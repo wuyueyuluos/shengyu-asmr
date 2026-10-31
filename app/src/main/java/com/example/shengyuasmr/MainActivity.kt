@@ -1069,12 +1069,6 @@ class MainActivity : ComponentActivity() {
         }
     }
 
-    private fun saveScriptScrollPosition() {
-        if (currentScreen == "script") {
-            (content.getChildAt(0) as? ScrollView)?.let { scriptScrollY = it.scrollY }
-        }
-    }
-
     private data class PdfPageInfo(
         val originalWidth: Int,
         val originalHeight: Int,
