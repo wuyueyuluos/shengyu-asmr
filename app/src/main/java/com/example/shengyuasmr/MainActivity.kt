@@ -80,16 +80,16 @@ class MainActivity : ComponentActivity() {
     private var libraryFilter = "全部作品"
     private var appliedTags = linkedSetOf<String>()
     private var libraryScrollY = 0
+    private var libraryScrollView: ScrollView? = null
     private val pdfRenderHandler = Handler(Looper.getMainLooper())
 
     private fun saveLibraryScrollPosition() {
-        if (currentScreen != "library") return
-        val scroll = content.getChildAt(2) as? ScrollView
-        if (scroll != null) {
-            libraryScrollY = scroll.scrollY
-            getSharedPreferences("shengyu_playback", MODE_PRIVATE).edit()
-                .putLong("library_scroll_y", libraryScrollY.toLong()).apply()
-        }
+        // Keep a direct reference: the library view may already be detached while the
+        // rescan/import screen replaces the content hierarchy.
+        val scroll = libraryScrollView
+        if (scroll != null) libraryScrollY = scroll.scrollY
+        getSharedPreferences("shengyu_playback", MODE_PRIVATE).edit()
+            .putLong("library_scroll_y", libraryScrollY.toLong()).apply()
     }
 
     private fun decodeLibraryThumbnail(uri: Uri): Bitmap? {
@@ -333,7 +333,16 @@ class MainActivity : ComponentActivity() {
             }
             content.addView(empty, LinearLayout.LayoutParams(-1, 0, 1f))
         } else {
-            val scroll = ScrollView(this).apply { clipToPadding = false; setPadding(0, dp(8), 0, dp(8)) }
+            val scroll = ScrollView(this).apply {
+                clipToPadding = false
+                setPadding(0, dp(8), 0, dp(8))
+                libraryScrollView = this
+                setOnScrollChangeListener { _, _, y, _, _ ->
+                    libraryScrollY = y
+                    getSharedPreferences("shengyu_playback", MODE_PRIVATE).edit()
+                        .putLong("library_scroll_y", y.toLong()).apply()
+                }
+            }
             val list = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setPadding(dp(1), 0, dp(1), dp(8)) }
             filteredWorks().forEachIndexed { index, work ->
                 val row = LinearLayout(this).apply {
