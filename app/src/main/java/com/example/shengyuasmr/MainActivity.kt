@@ -82,6 +82,7 @@ class MainActivity : ComponentActivity() {
     private var libraryScrollY = 0
     private var libraryScrollView: ScrollView? = null
     private val pdfRenderHandler = Handler(Looper.getMainLooper())
+    private var pdfReaderView: PdfReaderView? = null
 
     private fun saveLibraryScrollPosition() {
         // Keep a direct reference: the library view may already be detached while the
@@ -1074,77 +1075,333 @@ class MainActivity : ComponentActivity() {
         }
     }
 
-    private inner class PdfZoomImageView : ImageView(this@MainActivity) {
-        private val matrixValue = Matrix()
+    private data class PdfPageInfo(
+        val originalWidth: Int,
+        val originalHeight: Int,
+        var left: Float = 0f,
+        var top: Float = 0f,
+        var displayWidth: Float = 0f,
+        var displayHeight: Float = 0f
+    )
+
+    private data class PdfRenderedPage(val quality: Int, val bitmap: Bitmap)
+
+    /**
+     * One zoom/pan surface for the whole document. PDF pages are rendered only when
+     * visible (plus one page of prefetch), and old bitmaps are kept in a small LRU cache.
+     */
+    private inner class PdfReaderView(
+        private val documentUri: Uri,
+        private val initialScrollY: Int
+    ) : View(this@MainActivity) {
+        private val renderExecutor = java.util.concurrent.Executors.newSingleThreadExecutor()
+        private val pageInfo = mutableListOf<PdfPageInfo>()
+        private val renderedPages = LinkedHashMap<Int, PdfRenderedPage>(8, 0.75f, true)
+        private val pendingRenders = mutableSetOf<String>()
+        private var renderer: PdfRenderer? = null
+        private var descriptor: ParcelFileDescriptor? = null
+        private var documentHeight = 0f
         private var zoom = 1f
-        private var lastX = 0f
-        private var lastY = 0f
-        private var baseScale = 1f
-        private var bitmapWidth = 1f
-        private var bitmapHeight = 1f
-        private val detector = ScaleGestureDetector(this@MainActivity,
+        private var offsetX = 0f
+        private var offsetY = 0f
+        private var cachedBytes = 0L
+        private var disposed = false
+        private var initialPositionApplied = false
+        private var errorMessage: String? = null
+
+        private val pagePaint = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG).apply {
+            color = 0xFFFFFFFF.toInt()
+        }
+        private val bitmapPaint = android.graphics.Paint(android.graphics.Paint.FILTER_BITMAP_FLAG or android.graphics.Paint.ANTI_ALIAS_FLAG)
+        private val messagePaint = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG).apply {
+            color = 0xFF81798F.toInt()
+            textSize = dp(14).toFloat()
+            textAlign = android.graphics.Paint.Align.CENTER
+        }
+
+        private val scaleDetector = ScaleGestureDetector(this@MainActivity,
             object : ScaleGestureDetector.SimpleOnScaleGestureListener() {
                 override fun onScale(detector: ScaleGestureDetector): Boolean {
-                    val old = zoom
-                    zoom = (zoom * detector.scaleFactor).coerceIn(1f, 4f)
-                    val ratio = zoom / old
-                    matrixValue.postScale(ratio, ratio, detector.focusX, detector.focusY)
-                    imageMatrix = matrixValue
-                    parent?.requestDisallowInterceptTouchEvent(zoom > 1.01f)
+                    val oldZoom = zoom
+                    val newZoom = (zoom * detector.scaleFactor).coerceIn(1f, 4f)
+                    if (newZoom == oldZoom) return true
+                    val documentX = (detector.focusX - offsetX) / oldZoom
+                    val documentY = (detector.focusY - offsetY) / oldZoom
+                    zoom = newZoom
+                    offsetX = detector.focusX - documentX * zoom
+                    offsetY = detector.focusY - documentY * zoom
+                    clampOffsets()
                     invalidate()
                     return true
                 }
             })
+
         init {
-            scaleType = ScaleType.MATRIX
-            adjustViewBounds = false
-            setBackgroundColor(0xFFFCFAFD.toInt())
+            setBackgroundColor(0xFFF8F5FA.toInt())
             isClickable = true
-            setOnTouchListener { _, event ->
-                detector.onTouchEvent(event)
-                when (event.actionMasked) {
-                    MotionEvent.ACTION_DOWN -> { lastX = event.x; lastY = event.y; true }
-                    MotionEvent.ACTION_POINTER_DOWN -> {
-                        parent?.requestDisallowInterceptTouchEvent(true); true
-                    }
-                    MotionEvent.ACTION_MOVE -> {
-                        if (event.pointerCount > 1 || zoom > 1.01f) {
-                            matrixValue.postTranslate(event.x - lastX, event.y - lastY)
-                            imageMatrix = matrixValue
-                            parent?.requestDisallowInterceptTouchEvent(true)
-                        } else {
-                            parent?.requestDisallowInterceptTouchEvent(false)
+            openDocument()
+        }
+
+        private fun openDocument() {
+            renderExecutor.execute {
+                var openedDescriptor: ParcelFileDescriptor? = null
+                var openedRenderer: PdfRenderer? = null
+                try {
+                    val fd = contentResolver.openFileDescriptor(documentUri, "r")
+                        ?: throw IllegalStateException("无法读取 PDF 文件")
+                    openedDescriptor = fd
+                    val pdf = PdfRenderer(fd)
+                    openedRenderer = pdf
+                    val metrics = mutableListOf<PdfPageInfo>()
+                    for (i in 0 until pdf.pageCount) {
+                        pdf.openPage(i).use { page ->
+                            metrics.add(PdfPageInfo(page.width, page.height))
                         }
-                        lastX = event.x; lastY = event.y
-                        true
                     }
-                    MotionEvent.ACTION_POINTER_UP -> true
-                    MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
-                        parent?.requestDisallowInterceptTouchEvent(false); true
+                    descriptor = fd
+                    renderer = pdf
+                    pdfRenderHandler.post {
+                        if (disposed) return@post
+                        pageInfo.clear()
+                        pageInfo.addAll(metrics)
+                        updatePageLayout()
+                        invalidate()
                     }
-                    else -> true
+                } catch (e: Exception) {
+                    try { openedRenderer?.close() } catch (_: Exception) { }
+                    try { openedDescriptor?.close() } catch (_: Exception) { }
+                    pdfRenderHandler.post {
+                        if (!disposed) {
+                            errorMessage = "PDF 无法打开：" + (e.message ?: "未知错误")
+                            invalidate()
+                        }
+                    }
                 }
             }
         }
-        override fun setImageBitmap(bitmap: Bitmap?) {
-            super.setImageBitmap(bitmap)
-            zoom = 1f
-            matrixValue.reset()
-            if (bitmap != null) {
-                bitmapWidth = bitmap.width.toFloat()
-                bitmapHeight = bitmap.height.toFloat()
-                post {
-                    val vw = width.toFloat().coerceAtLeast(1f)
-                    baseScale = vw / bitmapWidth
-                    val fittedHeight = (bitmapHeight * baseScale).toInt().coerceAtLeast(1)
-                    matrixValue.setScale(baseScale, baseScale)
-                    matrixValue.postTranslate(0f, 0f)
-                    imageMatrix = matrixValue
-                    layoutParams = layoutParams.apply { height = fittedHeight }
+
+        private fun updatePageLayout() {
+            if (width <= 0 || pageInfo.isEmpty()) return
+            val oldDocumentY = (-offsetY / zoom).coerceAtLeast(0f)
+            val sideMargin = dp(10).toFloat()
+            val targetWidth = (width.toFloat() - sideMargin * 2f).coerceAtLeast(1f)
+            var y = dp(12).toFloat()
+            for (page in pageInfo) {
+                page.left = sideMargin
+                page.top = y
+                page.displayWidth = targetWidth
+                page.displayHeight = targetWidth * page.originalHeight.toFloat() / page.originalWidth.toFloat()
+                y += page.displayHeight + dp(14)
+            }
+            documentHeight = y
+            if (!initialPositionApplied) {
+                offsetY = -initialScrollY.toFloat()
+                initialPositionApplied = true
+            } else {
+                offsetY = -oldDocumentY * zoom
+            }
+            clampOffsets()
+        }
+
+        private fun clampOffsets() {
+            if (width <= 0 || height <= 0) return
+            val minX = width.toFloat() - width.toFloat() * zoom
+            offsetX = offsetX.coerceIn(minX, 0f)
+            val minY = height.toFloat() - documentHeight * zoom
+            offsetY = if (minY > 0f) 0f else offsetY.coerceIn(minY, 0f)
+        }
+
+        private fun requiredQuality(): Int = when {
+            zoom >= 2.4f -> 3
+            zoom >= 1.35f -> 2
+            else -> 1
+        }
+
+        private fun requestPageRender(index: Int, quality: Int) {
+            if (disposed || index !in pageInfo.indices) return
+            val cached = renderedPages[index]
+            if (cached != null && cached.quality >= quality) return
+            val key = index.toString() + ":" + quality.toString()
+            if (!pendingRenders.add(key)) return
+            val metric = pageInfo[index]
+            val renderWidth = (metric.displayWidth * quality).toInt().coerceAtLeast(1)
+            val renderHeight = (renderWidth.toFloat() * metric.originalHeight / metric.originalWidth)
+                .toInt().coerceAtLeast(1)
+            try {
+                renderExecutor.execute {
+                    var bitmap: Bitmap? = null
+                    var renderError: String? = null
+                    try {
+                        val pdf = renderer ?: throw IllegalStateException("PDF 尚未准备好")
+                        pdf.openPage(index).use { page ->
+                            val output = Bitmap.createBitmap(renderWidth, renderHeight, Bitmap.Config.ARGB_8888)
+                            bitmap = output
+                            page.render(output, null, null, PdfRenderer.Page.RENDER_MODE_FOR_DISPLAY)
+                        }
+                    } catch (e: Exception) {
+                        renderError = e.message ?: "页面渲染失败"
+                        try { bitmap?.recycle() } catch (_: Exception) { }
+                        bitmap = null
+                    }
+                    pdfRenderHandler.post {
+                        pendingRenders.remove(key)
+                        val completed = bitmap
+                        if (disposed) {
+                            try { completed?.recycle() } catch (_: Exception) { }
+                            return@post
+                        }
+                        if (completed == null) {
+                            errorMessage = "PDF 页面渲染失败：" + (renderError ?: "未知错误")
+                            invalidate()
+                            return@post
+                        }
+                        val old = renderedPages.remove(index)
+                        if (old != null) {
+                            cachedBytes -= old.bitmap.byteCount.toLong()
+                            if (old.bitmap !== completed) old.bitmap.recycle()
+                        }
+                        renderedPages[index] = PdfRenderedPage(quality, completed)
+                        cachedBytes += completed.byteCount.toLong()
+                        trimBitmapCache()
+                        invalidate()
+                    }
+                }
+            } catch (_: Exception) {
+                pendingRenders.remove(key)
+            }
+        }
+
+        private fun trimBitmapCache() {
+            val limit = 28L * 1024L * 1024L
+            while (cachedBytes > limit && renderedPages.size > 1) {
+                val iterator = renderedPages.entries.iterator()
+                if (!iterator.hasNext()) break
+                val eldest = iterator.next()
+                cachedBytes -= eldest.value.bitmap.byteCount.toLong()
+                eldest.value.bitmap.recycle()
+                iterator.remove()
+            }
+        }
+
+        override fun onSizeChanged(w: Int, h: Int, oldw: Int, oldh: Int) {
+            super.onSizeChanged(w, h, oldw, oldh)
+            updatePageLayout()
+        }
+
+        override fun onDraw(canvas: android.graphics.Canvas) {
+            super.onDraw(canvas)
+            if (pageInfo.isEmpty()) {
+                val message = errorMessage ?: "正在加载 PDF…"
+                canvas.drawText(message, width / 2f, height / 2f, messagePaint)
+                return
+            }
+
+            val visibleTop = (-offsetY / zoom).coerceAtLeast(0f)
+            val visibleBottom = (height.toFloat() - offsetY) / zoom
+            val quality = requiredQuality()
+            var firstVisible = -1
+            var lastVisible = -1
+
+            canvas.save()
+            canvas.translate(offsetX, offsetY)
+            canvas.scale(zoom, zoom)
+            for (i in pageInfo.indices) {
+                val page = pageInfo[i]
+                if (page.top + page.displayHeight < visibleTop || page.top > visibleBottom) continue
+                if (firstVisible < 0) firstVisible = i
+                lastVisible = i
+                val rect = android.graphics.RectF(
+                    page.left, page.top,
+                    page.left + page.displayWidth, page.top + page.displayHeight
+                )
+                canvas.drawRect(rect, pagePaint)
+                val cached = renderedPages[i]
+                if (cached != null) {
+                    canvas.drawBitmap(cached.bitmap, null, rect, bitmapPaint)
+                }
+                if (cached == null || cached.quality < quality) {
+                    requestPageRender(i, quality)
                 }
             }
+            canvas.restore()
+
+            // Prefetch one page above and below the viewport for smoother continuous scrolling.
+            if (firstVisible >= 0) {
+                if (firstVisible > 0) requestPageRender(firstVisible - 1, quality)
+                if (lastVisible < pageInfo.lastIndex) requestPageRender(lastVisible + 1, quality)
+            }
+        }
+
+        override fun onTouchEvent(event: MotionEvent): Boolean {
+            scaleDetector.onTouchEvent(event)
+            when (event.actionMasked) {
+                MotionEvent.ACTION_DOWN -> {
+                    lastTouchX = event.x
+                    lastTouchY = event.y
+                    parent?.requestDisallowInterceptTouchEvent(true)
+                    return true
+                }
+                MotionEvent.ACTION_POINTER_DOWN -> {
+                    parent?.requestDisallowInterceptTouchEvent(true)
+                    return true
+                }
+                MotionEvent.ACTION_MOVE -> {
+                    if (event.pointerCount == 1 && !scaleDetector.isInProgress) {
+                        val dx = event.x - lastTouchX
+                        val dy = event.y - lastTouchY
+                        if (zoom > 1.01f) offsetX += dx
+                        offsetY += dy
+                        clampOffsets()
+                        invalidate()
+                    }
+                    lastTouchX = event.x
+                    lastTouchY = event.y
+                    return true
+                }
+                MotionEvent.ACTION_POINTER_UP -> return true
+                MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
+                    saveScrollPosition()
+                    parent?.requestDisallowInterceptTouchEvent(false)
+                    return true
+                }
+            }
+            return true
+        }
+
+        private var lastTouchX = 0f
+        private var lastTouchY = 0f
+
+        fun saveScrollPosition() {
+            scriptScrollY = (-offsetY / zoom).toInt().coerceAtLeast(0)
+        }
+
+        override fun onDetachedFromWindow() {
+            disposed = true
+            try {
+                renderExecutor.execute {
+                    try { renderer?.close() } catch (_: Exception) { }
+                    try { descriptor?.close() } catch (_: Exception) { }
+                    renderer = null
+                    descriptor = null
+                }
+            } catch (_: Exception) { }
+            renderExecutor.shutdown()
+            for (entry in renderedPages.values) {
+                try { entry.bitmap.recycle() } catch (_: Exception) { }
+            }
+            renderedPages.clear()
+            cachedBytes = 0L
+            super.onDetachedFromWindow()
         }
     }
+
+    private fun saveScriptScrollPosition() {
+        if (currentScreen == "script") {
+            pdfReaderView?.saveScrollPosition()
+            (content.getChildAt(0) as? ScrollView)?.let { scriptScrollY = it.scrollY }
+        }
+    }
+
     private fun loadScript() {
         saveScriptScrollPosition()
         val previousScrollY = scriptScrollY
@@ -1156,57 +1413,32 @@ class MainActivity : ComponentActivity() {
             return
         }
         content.removeAllViews()
-        val scroll = ScrollView(this).apply {
-            setOnScrollChangeListener { _, _, y, _, _ -> scriptScrollY = y }
-        }
-        val body = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; background = android.graphics.drawable.GradientDrawable().apply { setColor(0xFFFCFAFD.toInt()); cornerRadius = dp(18).toFloat() } }
-        scroll.addView(body)
-        content.addView(scroll, LinearLayout.LayoutParams(-1, 0, 1f))
+        pdfReaderView = null
         val uri = scripts.getOrNull(selectedScriptIndex.coerceIn(0, scripts.lastIndex)) ?: scripts.first()
-        if ((uri.lastPathSegment ?: "").substringAfterLast('.', "").lowercase() == "pdf") {
-            val pageViews = mutableListOf<PdfZoomImageView>()
-            Thread {
-                try {
-                    contentResolver.openFileDescriptor(uri, "r")!!.use { fd ->
-                        PdfRenderer(fd).use { renderer ->
-                            val count = renderer.pageCount
-                            pdfRenderHandler.post {
-                                repeat(count) {
-                                    val pageView = PdfZoomImageView()
-                                    pageViews.add(pageView)
-                                    body.addView(pageView, LinearLayout.LayoutParams(-1, -2).apply {
-                                        bottomMargin = dp(10)
-                                    })
-                                }
-                                scroll.post { scroll.scrollTo(0, previousScrollY); scriptScrollY = previousScrollY }
-                            }
-                            for (i in 0 until count) {
-                                renderer.openPage(i).use { page ->
-                                    val targetW = (resources.displayMetrics.widthPixels - dp(36)).coerceAtLeast(1)
-                                    val scale = (targetW.toFloat() / page.width).coerceAtMost(1.25f)
-                                    val w = (page.width * scale).toInt().coerceAtLeast(1)
-                                    val h = (page.height * scale).toInt().coerceAtLeast(1)
-                                    val bitmap = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888)
-                                    page.render(bitmap, null, null, PdfRenderer.Page.RENDER_MODE_FOR_DISPLAY)
-                                    pdfRenderHandler.post {
-                                        if (i < pageViews.size) pageViews[i].setImageBitmap(bitmap)
-                                        else bitmap.recycle()
-                                    }
-                                }
-                            }
-                        }
-                    }
-                } catch (e: Exception) {
-                    pdfRenderHandler.post {
-                        body.addView(label("PDF 无法打开：${e.message ?: "未知错误"}", 15, 0xFF81798F.toInt()))
-                    }
-                }
-            }.start()
+        val isPdf = (uri.lastPathSegment ?: "").substringAfterLast('.', "").lowercase() == "pdf"
+        if (isPdf) {
+            val reader = PdfReaderView(uri, previousScrollY)
+            pdfReaderView = reader
+            content.addView(reader, LinearLayout.LayoutParams(-1, 0, 1f))
         } else {
+            val scroll = ScrollView(this).apply {
+                setOnScrollChangeListener { _, _, y, _, _ -> scriptScrollY = y }
+            }
+            val body = LinearLayout(this).apply {
+                orientation = LinearLayout.VERTICAL
+                background = android.graphics.drawable.GradientDrawable().apply {
+                    setColor(0xFFFCFAFD.toInt())
+                    cornerRadius = dp(18).toFloat()
+                }
+            }
+            scroll.addView(body)
+            content.addView(scroll, LinearLayout.LayoutParams(-1, 0, 1f))
             try {
                 val bytes = contentResolver.openInputStream(uri)?.use { it.readBytes() } ?: byteArrayOf()
                 currentScriptText = decodeScriptText(bytes)
-            } catch (_: Exception) { currentScriptText = "暂时无法读取这份台本。" }
+            } catch (_: Exception) {
+                currentScriptText = "暂时无法读取这份台本。"
+            }
             body.addView(TextView(this).apply {
                 text = currentScriptText
                 textSize = 17.5f
@@ -1216,8 +1448,11 @@ class MainActivity : ComponentActivity() {
                 setPadding(dp(20), dp(22), dp(20), dp(30))
                 letterSpacing = 0.02f
             })
+            scroll.post {
+                scroll.scrollTo(0, previousScrollY)
+                scriptScrollY = previousScrollY
+            }
         }
-        scroll.post { scroll.scrollTo(0, previousScrollY); scriptScrollY = previousScrollY }
         renderBottomControls()
     }
 
