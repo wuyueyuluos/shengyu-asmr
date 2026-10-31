@@ -77,6 +77,31 @@ class MainActivity : ComponentActivity() {
     private var lastBackPressedAt = 0L
     private var libraryFilter = "全部作品"
     private var appliedTags = linkedSetOf<String>()
+    private var libraryScrollY = 0
+
+    private fun saveLibraryScrollPosition() {
+        if (currentScreen != "library") return
+        val scroll = content.getChildAt(2) as? ScrollView
+        if (scroll != null) {
+            libraryScrollY = scroll.scrollY
+            getSharedPreferences("shengyu_playback", MODE_PRIVATE).edit()
+                .putLong("library_scroll_y", libraryScrollY.toLong()).apply()
+        }
+    }
+
+    private fun decodeLibraryThumbnail(uri: Uri): Bitmap? {
+        val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+        contentResolver.openInputStream(uri)?.use { BitmapFactory.decodeStream(it, null, bounds) }
+        if (bounds.outWidth <= 0 || bounds.outHeight <= 0) return null
+        var sample = 1
+        while (bounds.outWidth / sample > 400 || bounds.outHeight / sample > 400) sample *= 2
+        return contentResolver.openInputStream(uri)?.use {
+            BitmapFactory.decodeStream(it, null, BitmapFactory.Options().apply {
+                inSampleSize = sample
+                inPreferredConfig = Bitmap.Config.RGB_565
+            })
+        }
+    }
     private val progressHandler = Handler(Looper.getMainLooper())
     private val timerHandler = Handler(Looper.getMainLooper())
     private var sleepTimerEndAt = 0L
@@ -97,6 +122,12 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         buildShell()
+        val libraryPrefs = getSharedPreferences("shengyu_library", MODE_PRIVATE)
+        libraryFilter = libraryPrefs.getString("library_filter", "全部作品") ?: "全部作品"
+        try {
+            val savedTags = JSONArray(libraryPrefs.getString("applied_filter_tags", "[]") ?: "[]")
+            for (i in 0 until savedTags.length()) savedTags.optString(i).takeIf { it.isNotBlank() }?.let { appliedTags.add(it) }
+        } catch (_: Exception) { }
         setupMediaSession()
         loadWorks()
         onBackPressedDispatcher.addCallback(this, object : OnBackPressedCallback(true) {
@@ -248,6 +279,7 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun renderLibrary() {
+        saveLibraryScrollPosition()
         root.setBackgroundColor(0xFFF8F5FA.toInt())
         currentScreen = "library"
         content.removeAllViews()
@@ -313,7 +345,7 @@ class MainActivity : ComponentActivity() {
                     background = android.graphics.drawable.GradientDrawable().apply { setColor(0xFFEAE3F0.toInt()); cornerRadius = dp(13).toFloat() }
                     clipToOutline = true
                     val coverUri = work.cover ?: work.arts.firstOrNull()
-                    if (coverUri != null) try { contentResolver.openInputStream(coverUri)?.use { setImageBitmap(BitmapFactory.decodeStream(it)) } } catch (_: Exception) {}
+                    if (coverUri != null) try { setImageBitmap(decodeLibraryThumbnail(coverUri)) } catch (_: Exception) {}
                     if (drawable == null) setImageResource(android.R.drawable.ic_menu_gallery)
                 }
                 row.addView(coverView, LinearLayout.LayoutParams(dp(76), dp(94)))
@@ -338,9 +370,12 @@ class MainActivity : ComponentActivity() {
                     setTextColor(0xFF82738F.toInt())
                     setPadding(dp(3), 0, dp(3), 0)
                     background = android.graphics.drawable.GradientDrawable().apply { setColor(0xFFF2EDF6.toInt()); cornerRadius = dp(12).toFloat() }
-                    setOnClickListener { showWorkMenu(work) }
+                    setOnClickListener { saveLibraryScrollPosition(); showWorkMenu(work) }
                 }, LinearLayout.LayoutParams(dp(28), dp(94)))
                 row.setOnClickListener {
+                    saveLibraryScrollPosition()
+                    getSharedPreferences("shengyu_playback", MODE_PRIVATE).edit()
+                        .putLong("library_scroll_y", libraryScrollY.toLong()).apply()
                     val sameWork = folderUri == work.folder
                     currentFolderName = work.title
                     folderUri = work.folder
@@ -360,6 +395,9 @@ class MainActivity : ComponentActivity() {
             }
             scroll.addView(list)
             content.addView(scroll, LinearLayout.LayoutParams(-1, 0, 1f))
+            libraryScrollY = getSharedPreferences("shengyu_playback", MODE_PRIVATE)
+                .getLong("library_scroll_y", libraryScrollY.toLong()).toInt().coerceAtLeast(0)
+            scroll.post { scroll.scrollTo(0, libraryScrollY) }
         }
         val importArea = FrameLayout(this)
         val importButton = button("+").apply {
@@ -602,7 +640,7 @@ class MainActivity : ComponentActivity() {
     private fun showLibrarySections() {
         val choices = arrayOf("全部作品", "最近播放", "导入时间", "收藏", "标签")
         android.app.AlertDialog.Builder(this).setTitle("作品分类").setItems(choices) { _, i ->
-            if (i == 4) showTagFilter() else { libraryFilter = choices[i]; appliedTags.clear(); renderLibrary() }
+            if (i == 4) showTagFilter() else { libraryFilter = choices[i]; appliedTags.clear(); getSharedPreferences("shengyu_library", MODE_PRIVATE).edit().putString("library_filter", libraryFilter).putString("applied_filter_tags", "[]").apply(); renderLibrary() }
         }.setNegativeButton("取消", null).showStyled()
     }
     private fun showTagFilter() {
@@ -728,7 +766,7 @@ class MainActivity : ComponentActivity() {
         })
         redraw()
         panel.addView(button("应用筛选").apply {
-            setOnClickListener { appliedTags.clear(); appliedTags.addAll(selected); libraryFilter = "标签"; dialog.dismiss(); renderLibrary() }
+            setOnClickListener { appliedTags.clear(); appliedTags.addAll(selected); libraryFilter = "标签"; prefs.edit().putString("library_filter", libraryFilter).putString("applied_filter_tags", JSONArray(appliedTags.toList()).toString()).apply(); dialog.dismiss(); renderLibrary() }
         })
         dialog.setContentView(panel)
         dialog.show()
