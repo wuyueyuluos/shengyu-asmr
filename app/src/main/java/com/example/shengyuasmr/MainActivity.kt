@@ -142,7 +142,7 @@ class MainActivity : ComponentActivity() {
             brand.addView(icon, LinearLayout.LayoutParams(dp(44), dp(44)).apply { marginStart = dp(2) })
         }
         addHeaderIcon("◷", "定时停止", { showSleepTimer() }) { showSleepTimerPicker() }
-        addHeaderIcon("☰", "设置") { showSettings() }
+        addHeaderIcon("☰", "设置", { showSettings() })
         content.addView(brand)
         val heading = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL
