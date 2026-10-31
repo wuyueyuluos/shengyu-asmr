@@ -619,41 +619,127 @@ class MainActivity : ComponentActivity() {
 
     private fun showEditWork(work: LocalWork) {
         val box = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setPadding(dp(18), dp(12), dp(18), dp(8)) }
-        fun field(hint: String, value: String) = EditText(this).apply { this.hint = hint; setText(value); setSingleLine(true); textSize = 14f; setPadding(dp(12), dp(10), dp(12), dp(10)); background = android.graphics.drawable.GradientDrawable().apply { setColor(0xFFF1ECF5.toInt()); cornerRadius = dp(12).toFloat() } }
+        fun field(hint: String, value: String) = EditText(this).apply {
+            this.hint = hint; setText(value); setSingleLine(true); textSize = 14f
+            setPadding(dp(12), dp(10), dp(12), dp(10))
+            background = android.graphics.drawable.GradientDrawable().apply { setColor(0xFFF1ECF5.toInt()); cornerRadius = dp(12).toFloat() }
+        }
         val title = field("作品名", work.title)
-        val cv = field("CV", work.cv)
-        val circle = field("社团", work.circle)
-        val tags = field("自定义标签（用逗号分隔）", work.tags.joinToString(", "))
         var selectedCover: Uri? = work.cover ?: work.arts.firstOrNull()
         val coverButton = button("选择封面（当前：${selectedCover?.lastPathSegment ?: "默认插图"}）")
         coverButton.setOnClickListener {
-            if (work.arts.isEmpty()) {
-                Toast.makeText(this, "这个作品没有插图可用作封面。", Toast.LENGTH_SHORT).show()
-            } else {
+            if (work.arts.isEmpty()) Toast.makeText(this, "这个作品没有插图可用作封面。", Toast.LENGTH_SHORT).show()
+            else {
                 val names = work.arts.mapIndexed { i, uri -> "${i + 1}. ${uri.lastPathSegment ?: "插图"}" }.toTypedArray()
                 android.app.AlertDialog.Builder(this).setTitle("选择封面").setItems(names) { _, index ->
-                    selectedCover = work.arts[index]
-                    coverButton.text = "选择封面（当前：${names[index]}）"
+                    selectedCover = work.arts[index]; coverButton.text = "选择封面（当前：${names[index]}）"
                 }.setNegativeButton("取消", null).showStyled()
             }
         }
+
+        val tagPrefs = getSharedPreferences("shengyu_library", MODE_PRIVATE)
+        val catalog = linkedMapOf(
+            "CV" to works.flatMap { it.cv.split(",", "，", "、") }.map { it.trim() }.filter { it.isNotBlank() }.distinct().toMutableList(),
+            "社团" to works.flatMap { it.circle.split(",", "，", "、") }.map { it.trim() }.filter { it.isNotBlank() }.distinct().toMutableList(),
+            "自定义" to works.flatMap { it.tags }.map { it.trim() }.filter { it.isNotBlank() }.distinct().toMutableList()
+        )
+        tagPrefs.getString("tag_catalog", null)?.let { saved ->
+            try {
+                val json = JSONObject(saved)
+                listOf("CV", "社团", "自定义").forEach { group ->
+                    val arr = json.optJSONArray(group)
+                    if (arr != null) catalog[group] = (0 until arr.length()).map { arr.optString(it).trim() }.filter { it.isNotBlank() }.distinct().toMutableList()
+                }
+            } catch (_: Exception) {}
+        }
+        fun persistCatalog() {
+            val json = JSONObject()
+            catalog.forEach { (group, values) -> json.put(group, JSONArray(values.distinct())) }
+            tagPrefs.edit().putString("tag_catalog", json.toString()).apply()
+        }
+
+        val cv = field("CV", work.cv)
+        val circle = field("社团", work.circle)
+        val tags = field("自定义标签（用逗号分隔）", work.tags.joinToString(", "))
+        fun openTagPicker(group: String, target: EditText) {
+            val available = catalog[group].orEmpty()
+            val selected = target.text.toString().split(",", "，", "、").map { it.trim() }.filter { it.isNotBlank() }.toMutableSet()
+            val panel = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setPadding(dp(16), dp(12), dp(16), dp(8)) }
+            panel.addView(label("选择$group 标签", 17, 0xFF51435F.toInt(), true).apply { setPadding(0, 0, 0, dp(10)) })
+            if (available.isEmpty()) {
+                panel.addView(label("还没有已保存的$group 标签。可以先在作品信息中填写并保存。", 13, 0xFF8A7E95.toInt()))
+            }
+            val scroll = ScrollView(this)
+            val chipArea = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
+            scroll.addView(chipArea)
+            panel.addView(scroll, LinearLayout.LayoutParams(-1, dp(240)))
+            fun redrawChips() {
+                chipArea.removeAllViews()
+                var row: LinearLayout? = null
+                var rowWidth = 0
+                val maxWidth = (resources.displayMetrics.widthPixels * 0.78f).toInt()
+                available.forEach { tag ->
+                    val chip = TextView(this).apply {
+                        text = (if (tag in selected) "✓ " else "") + tag
+                        textSize = 13f; setTextColor(if (tag in selected) 0xFF51435F.toInt() else 0xFF756681.toInt())
+                        gravity = Gravity.CENTER; setPadding(dp(12), dp(8), dp(12), dp(8))
+                        background = android.graphics.drawable.GradientDrawable().apply {
+                            setColor(if (tag in selected) 0xFFE2D5EE.toInt() else 0xFFF1ECF5.toInt())
+                            cornerRadius = dp(18).toFloat()
+                            setStroke(dp(1), if (tag in selected) 0xFFB7A1CB.toInt() else 0xFFE7DDED.toInt())
+                        }
+                        setOnClickListener { if (!selected.add(tag)) selected.remove(tag); redrawChips() }
+                    }
+                    chip.measure(View.MeasureSpec.makeMeasureSpec(maxWidth, View.MeasureSpec.AT_MOST), View.MeasureSpec.makeMeasureSpec(dp(40), View.MeasureSpec.AT_MOST))
+                    val width = chip.measuredWidth + dp(6)
+                    if (row == null || rowWidth + width > maxWidth) {
+                        row = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL }
+                        chipArea.addView(row, LinearLayout.LayoutParams(-1, -2).apply { bottomMargin = dp(8) })
+                        rowWidth = 0
+                    }
+                    row!!.addView(chip, LinearLayout.LayoutParams(-2, dp(38)).apply { marginEnd = dp(6) })
+                    rowWidth += width
+                }
+            }
+            redrawChips()
+            android.app.AlertDialog.Builder(this).setView(panel)
+                .setPositiveButton("确认") { _, _ -> target.setText(available.filter { it in selected }.joinToString(", ")) }
+                .setNegativeButton("取消", null).showStyled()
+        }
+        fun tagRow(group: String, input: EditText): View {
+            val row = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL }
+            row.addView(input, LinearLayout.LayoutParams(0, dp(48), 1f))
+            row.addView(button("选择").apply {
+                textSize = 12f
+                setOnClickListener { openTagPicker(group, input) }
+            }, LinearLayout.LayoutParams(dp(70), dp(44)).apply { marginStart = dp(8) })
+            return row
+        }
+
         box.addView(label("作品名称", 12, 0xFF8A7E95.toInt(), true))
         box.addView(title, LinearLayout.LayoutParams(-1, dp(48)).apply { bottomMargin = dp(10) })
         box.addView(coverButton, LinearLayout.LayoutParams(-1, dp(46)).apply { bottomMargin = dp(10) })
         box.addView(label("CV", 12, 0xFF8A7E95.toInt(), true))
-        box.addView(cv, LinearLayout.LayoutParams(-1, dp(48)).apply { bottomMargin = dp(10) })
+        box.addView(tagRow("CV", cv), LinearLayout.LayoutParams(-1, dp(48)).apply { bottomMargin = dp(10) })
         box.addView(label("社团", 12, 0xFF8A7E95.toInt(), true))
-        box.addView(circle, LinearLayout.LayoutParams(-1, dp(48)).apply { bottomMargin = dp(10) })
+        box.addView(tagRow("社团", circle), LinearLayout.LayoutParams(-1, dp(48)).apply { bottomMargin = dp(10) })
         box.addView(label("自定义标签 · 逗号分隔", 12, 0xFF8A7E95.toInt(), true))
-        box.addView(tags, LinearLayout.LayoutParams(-1, dp(48)))
+        box.addView(tagRow("自定义", tags), LinearLayout.LayoutParams(-1, dp(48)))
+
         android.app.AlertDialog.Builder(this).setTitle("编辑作品信息").setView(ScrollView(this).apply { addView(box) })
             .setPositiveButton("保存") { _, _ ->
                 val i = works.indexOfFirst { it.folder == work.folder }
                 if (i >= 0) {
+                    val cvValues = cv.text.toString().split(",", "，", "、").map { it.trim() }.filter { it.isNotBlank() }
+                    val circleValues = circle.text.toString().split(",", "，", "、").map { it.trim() }.filter { it.isNotBlank() }
+                    val tagValues = tags.text.toString().split(",", "，", "、").map { it.trim() }.filter { it.isNotBlank() }
+                    catalog["CV"] = (catalog["CV"].orEmpty() + cvValues).distinct().toMutableList()
+                    catalog["社团"] = (catalog["社团"].orEmpty() + circleValues).distinct().toMutableList()
+                    catalog["自定义"] = (catalog["自定义"].orEmpty() + tagValues).distinct().toMutableList()
+                    persistCatalog()
                     val coverUri = selectedCover ?: work.arts.firstOrNull()
                     works[i] = works[i].copy(title = title.text.toString().trim().ifBlank { work.title }, cover = coverUri,
-                        cv = cv.text.toString().trim(), circle = circle.text.toString().trim(),
-                        tags = tags.text.toString().split(",").map { it.trim() }.filter { it.isNotBlank() })
+                        cv = cvValues.joinToString(", "), circle = circleValues.joinToString(", "), tags = tagValues)
                     saveWorks(); renderLibrary()
                 }
             }.setNegativeButton("取消", null).showStyled()
