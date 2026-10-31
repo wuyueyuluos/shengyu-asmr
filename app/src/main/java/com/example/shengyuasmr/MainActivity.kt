@@ -1124,20 +1124,147 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun showSleepTimer() {
-        val choices = arrayOf("15 分钟后停止", "30 分钟后停止", "45 分钟后停止", "60 分钟后停止", "90 分钟后停止", "取消当前定时")
-        android.app.AlertDialog.Builder(this)
-            .setTitle(if (sleepTimerEndAt > System.currentTimeMillis()) "定时停止（剩余 ${formatTimerRemaining()}）" else "定时停止")
-            .setItems(choices) { _, which ->
-                if (which == choices.lastIndex) {
+        val prefs = getSharedPreferences("shengyu_settings", MODE_PRIVATE)
+        val defaultEnabled = prefs.getBoolean("sleep_timer_default_enabled", false)
+        val defaultMinutes = prefs.getInt("sleep_timer_default_minutes", 30)
+        if (defaultEnabled && defaultMinutes > 0) {
+            startSleepTimer(defaultMinutes)
+            return
+        }
+        showSleepTimerPicker()
+    }
+
+    private fun showSleepTimerPicker() {
+        val prefs = getSharedPreferences("shengyu_settings", MODE_PRIVATE)
+        val defaultEnabled = prefs.getBoolean("sleep_timer_default_enabled", false)
+        val initialMinutes = if (sleepTimerEndAt > System.currentTimeMillis()) {
+            ((sleepTimerEndAt - System.currentTimeMillis() + 59_999L) / 60_000L).toInt().coerceIn(0, 60)
+        } else {
+            prefs.getInt("sleep_timer_default_minutes", 30).coerceIn(0, 60)
+        }
+
+        val panel = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(24), dp(8), dp(24), dp(8))
+        }
+        val valueLabel = TextView(this).apply {
+            text = if (initialMinutes == 0) "立即停止" else "$initialMinutes 分钟后停止"
+            textSize = 26f
+            gravity = Gravity.CENTER
+            setTextColor(0xFF51435F.toInt())
+            setPadding(0, dp(12), 0, dp(18))
+        }
+        panel.addView(valueLabel, LinearLayout.LayoutParams(-1, -2))
+
+        val sliderRow = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+        }
+        fun timerStepButton(glyph: String, description: String) = TextView(this).apply {
+            text = glyph
+            textSize = 28f
+            gravity = Gravity.CENTER
+            contentDescription = description
+            setTextColor(0xFF806B9A.toInt())
+            background = android.graphics.drawable.GradientDrawable().apply {
+                setColor(0xFFEDE5F2.toInt())
+                cornerRadius = dp(14).toFloat()
+            }
+        }
+        val minus = timerStepButton("−", "减少一分钟")
+        val plus = timerStepButton("+", "增加一分钟")
+        val seek = android.widget.SeekBar(this).apply {
+            max = 60
+            progress = initialMinutes
+            progressTintList = android.content.res.ColorStateList.valueOf(0xFF9A82B3.toInt())
+            thumbTintList = android.content.res.ColorStateList.valueOf(0xFF9A82B3.toInt())
+            progressBackgroundTintList = android.content.res.ColorStateList.valueOf(0xFFE8DFF0.toInt())
+            contentDescription = "定时分钟数，0 到 60 分钟"
+        }
+        sliderRow.addView(minus, LinearLayout.LayoutParams(dp(44), dp(44)))
+        sliderRow.addView(seek, LinearLayout.LayoutParams(0, dp(44), 1f).apply {
+            marginStart = dp(10); marginEnd = dp(10)
+        })
+        sliderRow.addView(plus, LinearLayout.LayoutParams(dp(44), dp(44)))
+        panel.addView(sliderRow)
+
+        val scale = TextView(this).apply {
+            text = "0 分钟                                                60 分钟"
+            textSize = 12f
+            setTextColor(0xFF9B91A4.toInt())
+            setPadding(0, dp(4), 0, dp(18))
+        }
+        panel.addView(scale)
+
+        val defaultSwitch = android.widget.CheckBox(this).apply {
+            text = "设为默认"
+            textSize = 15f
+            setTextColor(0xFF62536F.toInt())
+            isChecked = defaultEnabled
+            buttonTintList = android.content.res.ColorStateList.valueOf(0xFF9A82B3.toInt())
+        }
+        panel.addView(defaultSwitch)
+
+        val status = TextView(this).apply {
+            text = if (sleepTimerEndAt > System.currentTimeMillis()) "当前定时剩余：${formatTimerRemaining()}" else "拖动进度条或使用 + / − 调整时间"
+            textSize = 12f
+            setTextColor(0xFF9B91A4.toInt())
+            setPadding(0, dp(8), 0, dp(4))
+        }
+        panel.addView(status)
+
+        fun updateValue(value: Int) {
+            seek.progress = value.coerceIn(0, 60)
+            valueLabel.text = if (seek.progress == 0) "立即停止" else "${seek.progress} 分钟后停止"
+        }
+        minus.setOnClickListener { updateValue(seek.progress - 1) }
+        plus.setOnClickListener { updateValue(seek.progress + 1) }
+        seek.setOnSeekBarChangeListener(object : android.widget.SeekBar.OnSeekBarChangeListener {
+            override fun onProgressChanged(seekBar: android.widget.SeekBar?, progress: Int, fromUser: Boolean) {
+                valueLabel.text = if (progress == 0) "立即停止" else "$progress 分钟后停止"
+            }
+            override fun onStartTrackingTouch(seekBar: android.widget.SeekBar?) {}
+            override fun onStopTrackingTouch(seekBar: android.widget.SeekBar?) {}
+        })
+
+        val dialog = android.app.AlertDialog.Builder(this)
+            .setTitle("定时停止")
+            .setView(panel)
+            .setNegativeButton("取消", null)
+            .setNeutralButton(if (sleepTimerEndAt > System.currentTimeMillis()) "取消定时" else "关闭", null)
+            .setPositiveButton(if (sleepTimerEndAt > System.currentTimeMillis()) "重新计时" else "开始计时", null)
+            .create()
+        dialog.setOnShowListener {
+            dialog.getButton(android.app.AlertDialog.BUTTON_POSITIVE)?.setOnClickListener {
+                val minutes = seek.progress
+                prefs.edit()
+                    .putBoolean("sleep_timer_default_enabled", defaultSwitch.isChecked && minutes > 0)
+                    .putInt("sleep_timer_default_minutes", minutes)
+                    .apply()
+                if (minutes == 0) {
                     cancelSleepTimer()
                     Toast.makeText(this, "已取消定时停止", Toast.LENGTH_SHORT).show()
                 } else {
-                    val minutes = intArrayOf(15, 30, 45, 60, 90)[which]
                     startSleepTimer(minutes)
                 }
+                dialog.dismiss()
             }
-            .setNegativeButton("关闭", null)
-            .showStyled()
+            dialog.getButton(android.app.AlertDialog.BUTTON_NEUTRAL)?.setOnClickListener {
+                cancelSleepTimer()
+                Toast.makeText(this, "已取消定时停止", Toast.LENGTH_SHORT).show()
+                dialog.dismiss()
+            }
+            val surface = android.graphics.drawable.GradientDrawable().apply {
+                setColor(0xFFFAF8FC.toInt())
+                cornerRadius = dp(20).toFloat()
+                setStroke(dp(1), 0xFFEAE3F0.toInt())
+            }
+            dialog.window?.setBackgroundDrawable(surface)
+            dialog.getButton(android.app.AlertDialog.BUTTON_POSITIVE)?.setTextColor(0xFF806B9A.toInt())
+            dialog.getButton(android.app.AlertDialog.BUTTON_NEGATIVE)?.setTextColor(0xFF806B9A.toInt())
+            dialog.getButton(android.app.AlertDialog.BUTTON_NEUTRAL)?.setTextColor(0xFF806B9A.toInt())
+        }
+        dialog.show()
     }
 
     private fun formatTimerRemaining(): String {
