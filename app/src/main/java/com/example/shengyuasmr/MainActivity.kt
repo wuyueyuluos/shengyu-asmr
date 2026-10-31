@@ -602,7 +602,7 @@ class MainActivity : ComponentActivity() {
     private fun showLibrarySections() {
         val choices = arrayOf("全部作品", "最近播放", "导入时间", "收藏", "标签")
         android.app.AlertDialog.Builder(this).setTitle("作品分类").setItems(choices) { _, i ->
-            if (i == 4) showTagFilter() else { libraryFilter = choices[i]; appliedTags.clear(); renderLibrary() }
+            if (i == 4) showTagFilter() else { libraryFilter = choices[i]; appliedTags.clear(); getSharedPreferences("shengyu_library", MODE_PRIVATE).edit().putString("library_filter", libraryFilter).putString("applied_filter_tags", "[]").apply(); renderLibrary() }
         }.setNegativeButton("取消", null).showStyled()
     }
     private fun showTagFilter() {
