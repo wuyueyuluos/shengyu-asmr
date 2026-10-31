@@ -728,7 +728,7 @@ class MainActivity : ComponentActivity() {
         })
         redraw()
         panel.addView(button("应用筛选").apply {
-            setOnClickListener { appliedTags.clear(); appliedTags.addAll(selected); libraryFilter = "标签"; dialog.dismiss(); renderLibrary() }
+            setOnClickListener { appliedTags.clear(); appliedTags.addAll(selected); libraryFilter = "标签"; prefs.edit().putString("library_filter", libraryFilter).putString("applied_filter_tags", JSONArray(appliedTags.toList()).toString()).apply(); dialog.dismiss(); renderLibrary() }
         })
         dialog.setContentView(panel)
         dialog.show()
