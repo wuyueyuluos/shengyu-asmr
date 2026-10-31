@@ -80,16 +80,16 @@ class MainActivity : ComponentActivity() {
     private var libraryFilter = "全部作品"
     private var appliedTags = linkedSetOf<String>()
     private var libraryScrollY = 0
+    private var libraryScrollView: ScrollView? = null
     private val pdfRenderHandler = Handler(Looper.getMainLooper())
 
     private fun saveLibraryScrollPosition() {
-        if (currentScreen != "library") return
-        val scroll = content.getChildAt(2) as? ScrollView
-        if (scroll != null) {
-            libraryScrollY = scroll.scrollY
-            getSharedPreferences("shengyu_playback", MODE_PRIVATE).edit()
-                .putLong("library_scroll_y", libraryScrollY.toLong()).apply()
-        }
+        // Keep a direct reference: the library view may already be detached while the
+        // rescan/import screen replaces the content hierarchy.
+        val scroll = libraryScrollView
+        if (scroll != null) libraryScrollY = scroll.scrollY
+        getSharedPreferences("shengyu_playback", MODE_PRIVATE).edit()
+            .putLong("library_scroll_y", libraryScrollY.toLong()).apply()
     }
 
     private fun decodeLibraryThumbnail(uri: Uri): Bitmap? {
@@ -333,7 +333,16 @@ class MainActivity : ComponentActivity() {
             }
             content.addView(empty, LinearLayout.LayoutParams(-1, 0, 1f))
         } else {
-            val scroll = ScrollView(this).apply { clipToPadding = false; setPadding(0, dp(8), 0, dp(8)) }
+            val scroll = ScrollView(this).apply {
+                clipToPadding = false
+                setPadding(0, dp(8), 0, dp(8))
+                libraryScrollView = this
+                setOnScrollChangeListener { _, _, y, _, _ ->
+                    libraryScrollY = y
+                    getSharedPreferences("shengyu_playback", MODE_PRIVATE).edit()
+                        .putLong("library_scroll_y", y.toLong()).apply()
+                }
+            }
             val list = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setPadding(dp(1), 0, dp(1), dp(8)) }
             filteredWorks().forEachIndexed { index, work ->
                 val row = LinearLayout(this).apply {
@@ -1066,36 +1075,42 @@ class MainActivity : ComponentActivity() {
     }
 
     private inner class PdfZoomImageView : ImageView(this@MainActivity) {
-        private val imageMatrixValue = Matrix()
+        private val matrixValue = Matrix()
         private var zoom = 1f
         private var lastX = 0f
         private var lastY = 0f
         private var baseScale = 1f
+        private var bitmapWidth = 1f
+        private var bitmapHeight = 1f
         private val detector = ScaleGestureDetector(this@MainActivity,
             object : ScaleGestureDetector.SimpleOnScaleGestureListener() {
                 override fun onScale(detector: ScaleGestureDetector): Boolean {
-                    val next = (zoom * detector.scaleFactor).coerceIn(1f, 4f)
-                    val factor = next / zoom
-                    imageMatrixValue.postScale(factor, factor, detector.focusX, detector.focusY)
-                    zoom = next
-                    imageMatrix = imageMatrixValue
+                    val old = zoom
+                    zoom = (zoom * detector.scaleFactor).coerceIn(1f, 4f)
+                    val ratio = zoom / old
+                    matrixValue.postScale(ratio, ratio, detector.focusX, detector.focusY)
+                    imageMatrix = matrixValue
                     parent?.requestDisallowInterceptTouchEvent(zoom > 1.01f)
+                    invalidate()
                     return true
                 }
             })
         init {
             scaleType = ScaleType.MATRIX
-            adjustViewBounds = true
+            adjustViewBounds = false
             setBackgroundColor(0xFFFCFAFD.toInt())
-            setOnTouchListener { view, event ->
+            isClickable = true
+            setOnTouchListener { _, event ->
                 detector.onTouchEvent(event)
                 when (event.actionMasked) {
                     MotionEvent.ACTION_DOWN -> { lastX = event.x; lastY = event.y; true }
-                    MotionEvent.ACTION_POINTER_DOWN -> { parent?.requestDisallowInterceptTouchEvent(true); true }
+                    MotionEvent.ACTION_POINTER_DOWN -> {
+                        parent?.requestDisallowInterceptTouchEvent(true); true
+                    }
                     MotionEvent.ACTION_MOVE -> {
-                        if (zoom > 1.01f) {
-                            imageMatrixValue.postTranslate(event.x - lastX, event.y - lastY)
-                            imageMatrix = imageMatrixValue
+                        if (event.pointerCount > 1 || zoom > 1.01f) {
+                            matrixValue.postTranslate(event.x - lastX, event.y - lastY)
+                            imageMatrix = matrixValue
                             parent?.requestDisallowInterceptTouchEvent(true)
                         } else {
                             parent?.requestDisallowInterceptTouchEvent(false)
@@ -1103,9 +1118,9 @@ class MainActivity : ComponentActivity() {
                         lastX = event.x; lastY = event.y
                         true
                     }
+                    MotionEvent.ACTION_POINTER_UP -> true
                     MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
-                        parent?.requestDisallowInterceptTouchEvent(false)
-                        true
+                        parent?.requestDisallowInterceptTouchEvent(false); true
                     }
                     else -> true
                 }
@@ -1114,22 +1129,22 @@ class MainActivity : ComponentActivity() {
         override fun setImageBitmap(bitmap: Bitmap?) {
             super.setImageBitmap(bitmap)
             zoom = 1f
-            imageMatrixValue.reset()
+            matrixValue.reset()
             if (bitmap != null) {
+                bitmapWidth = bitmap.width.toFloat()
+                bitmapHeight = bitmap.height.toFloat()
                 post {
                     val vw = width.toFloat().coerceAtLeast(1f)
-                    val vh = (resources.displayMetrics.widthPixels - dp(36)).toFloat().coerceAtLeast(1f)
-                    baseScale = minOf(vw / bitmap.width, vh / bitmap.height)
-                    val dx = (vw - bitmap.width * baseScale) / 2f
-                    imageMatrixValue.setScale(baseScale, baseScale)
-                    imageMatrixValue.postTranslate(dx, 0f)
-                    imageMatrix = imageMatrixValue
-                    layoutParams = layoutParams.apply { height = (bitmap.height * baseScale).toInt().coerceAtLeast(1) }
+                    baseScale = vw / bitmapWidth
+                    val fittedHeight = (bitmapHeight * baseScale).toInt().coerceAtLeast(1)
+                    matrixValue.setScale(baseScale, baseScale)
+                    matrixValue.postTranslate(0f, 0f)
+                    imageMatrix = matrixValue
+                    layoutParams = layoutParams.apply { height = fittedHeight }
                 }
             }
         }
     }
-
     private fun loadScript() {
         saveScriptScrollPosition()
         val previousScrollY = scriptScrollY
@@ -1168,10 +1183,10 @@ class MainActivity : ComponentActivity() {
                             for (i in 0 until count) {
                                 renderer.openPage(i).use { page ->
                                     val targetW = (resources.displayMetrics.widthPixels - dp(36)).coerceAtLeast(1)
-                                    val scale = (targetW.toFloat() / page.width).coerceAtMost(2.0f)
+                                    val scale = (targetW.toFloat() / page.width).coerceAtMost(1.25f)
                                     val w = (page.width * scale).toInt().coerceAtLeast(1)
                                     val h = (page.height * scale).toInt().coerceAtLeast(1)
-                                    val bitmap = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888)
+                                    val bitmap = Bitmap.createBitmap(w, h, Bitmap.Config.RGB_565)
                                     page.render(bitmap, null, null, PdfRenderer.Page.RENDER_MODE_FOR_DISPLAY)
                                     pdfRenderHandler.post {
                                         if (i < pageViews.size) pageViews[i].setImageBitmap(bitmap)
