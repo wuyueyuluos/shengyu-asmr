@@ -1147,17 +1147,19 @@ class MainActivity : ComponentActivity() {
                 var openedDescriptor: ParcelFileDescriptor? = null
                 var openedRenderer: PdfRenderer? = null
                 try {
-                    openedDescriptor = contentResolver.openFileDescriptor(documentUri, "r")
+                    val fd = contentResolver.openFileDescriptor(documentUri, "r")
                         ?: throw IllegalStateException("无法读取 PDF 文件")
-                    openedRenderer = PdfRenderer(openedDescriptor)
+                    openedDescriptor = fd
+                    val pdf = PdfRenderer(fd)
+                    openedRenderer = pdf
                     val metrics = mutableListOf<PdfPageInfo>()
-                    for (i in 0 until openedRenderer.pageCount) {
-                        openedRenderer.openPage(i).use { page ->
+                    for (i in 0 until pdf.pageCount) {
+                        pdf.openPage(i).use { page ->
                             metrics.add(PdfPageInfo(page.width, page.height))
                         }
                     }
-                    descriptor = openedDescriptor
-                    renderer = openedRenderer
+                    descriptor = fd
+                    renderer = pdf
                     pdfRenderHandler.post {
                         if (disposed) return@post
                         pageInfo.clear()
@@ -1232,8 +1234,9 @@ class MainActivity : ComponentActivity() {
                     try {
                         val pdf = renderer ?: throw IllegalStateException("PDF 尚未准备好")
                         pdf.openPage(index).use { page ->
-                            bitmap = Bitmap.createBitmap(renderWidth, renderHeight, Bitmap.Config.ARGB_8888)
-                            page.render(bitmap, null, null, PdfRenderer.Page.RENDER_MODE_FOR_DISPLAY)
+                            val output = Bitmap.createBitmap(renderWidth, renderHeight, Bitmap.Config.ARGB_8888)
+                            bitmap = output
+                            page.render(output, null, null, PdfRenderer.Page.RENDER_MODE_FOR_DISPLAY)
                         }
                     } catch (e: Exception) {
                         renderError = e.message ?: "页面渲染失败"
