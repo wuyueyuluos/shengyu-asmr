@@ -314,30 +314,83 @@ class MainActivity : ComponentActivity() {
             return
         }
         try {
-            val options = BitmapFactory.Options().apply { inJustDecodeBounds = true }
-            contentResolver.openInputStream(uri)?.use { BitmapFactory.decodeStream(it, null, options) }
-            options.inJustDecodeBounds = false
-            options.inSampleSize = maxOf(1, minOf(options.outWidth / 180, options.outHeight / 300))
-            val source = contentResolver.openInputStream(uri)?.use { BitmapFactory.decodeStream(it, null, options) }
-            if (source == null) {
+            val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+            contentResolver.openInputStream(uri)?.use { BitmapFactory.decodeStream(it, null, bounds) }
+            if (bounds.outWidth <= 0 || bounds.outHeight <= 0) {
                 root.setBackgroundColor(0xFFF8F5FA.toInt())
                 return
             }
-            // Small down/up scaling creates a lightweight blur-like diffusion on Android 10+,
-            // without relying on RenderEffect (which is only available on Android 12+).
-            val smallW = 56
-            val smallH = maxOf(72, (source.height.toFloat() / source.width * smallW).toInt().coerceAtMost(180))
-            val small = Bitmap.createScaledBitmap(source, smallW, smallH, true)
-            val softened = Bitmap.createScaledBitmap(small, 360, 720, true)
-            if (small !== source && !small.isRecycled) small.recycle()
-            if (source !== softened && !source.isRecycled) source.recycle()
 
-            val backdrop = android.graphics.drawable.BitmapDrawable(resources, softened).apply {
+            // Decode a small source first, then center-crop it to the screen's aspect ratio.
+            val targetW = root.width.takeIf { it > 0 } ?: resources.displayMetrics.widthPixels
+            val targetH = root.height.takeIf { it > 0 } ?: resources.displayMetrics.heightPixels
+            val targetRatio = targetW.toFloat() / targetH.coerceAtLeast(1)
+            val sample = maxOf(1, minOf(bounds.outWidth / 360, bounds.outHeight / 640))
+            val options = BitmapFactory.Options().apply { inSampleSize = sample }
+            val decoded = contentResolver.openInputStream(uri)?.use { BitmapFactory.decodeStream(it, null, options) }
+                ?: throw IllegalStateException("Unable to decode artwork")
+
+            val sourceRatio = decoded.width.toFloat() / decoded.height.coerceAtLeast(1)
+            val cropW: Int
+            val cropH: Int
+            if (sourceRatio > targetRatio) {
+                cropH = decoded.height
+                cropW = (cropH * targetRatio).toInt().coerceIn(1, decoded.width)
+            } else {
+                cropW = decoded.width
+                cropH = (cropW / targetRatio).toInt().coerceIn(1, decoded.height)
+            }
+            val cropX = (decoded.width - cropW) / 2
+            val cropY = (decoded.height - cropH) / 2
+            val cropped = Bitmap.createBitmap(decoded, cropX, cropY, cropW, cropH)
+            if (cropped !== decoded && !decoded.isRecycled) decoded.recycle()
+
+            // Prepare a modest-size backdrop and apply a real two-pass box blur.
+            val blurW = 180
+            val blurH = maxOf(240, (blurW / targetRatio).toInt().coerceAtMost(420))
+            val small = Bitmap.createScaledBitmap(cropped, blurW, blurH, true)
+            if (small !== cropped && !cropped.isRecycled) cropped.recycle()
+            val pixels = IntArray(blurW * blurH)
+            small.getPixels(pixels, 0, blurW, 0, 0, blurW, blurH)
+            val radius = 13
+            val horizontal = IntArray(pixels.size)
+            for (y in 0 until blurH) {
+                for (x in 0 until blurW) {
+                    var rr = 0; var gg = 0; var bb = 0; var count = 0
+                    for (k in (x - radius).coerceAtLeast(0)..(x + radius).coerceAtMost(blurW - 1)) {
+                        val c = pixels[y * blurW + k]
+                        rr += android.graphics.Color.red(c)
+                        gg += android.graphics.Color.green(c)
+                        bb += android.graphics.Color.blue(c)
+                        count++
+                    }
+                    horizontal[y * blurW + x] = android.graphics.Color.rgb(rr / count, gg / count, bb / count)
+                }
+            }
+            val blurredPixels = IntArray(pixels.size)
+            for (y in 0 until blurH) {
+                for (x in 0 until blurW) {
+                    var rr = 0; var gg = 0; var bb = 0; var count = 0
+                    for (k in (y - radius).coerceAtLeast(0)..(y + radius).coerceAtMost(blurH - 1)) {
+                        val c = horizontal[k * blurW + x]
+                        rr += android.graphics.Color.red(c)
+                        gg += android.graphics.Color.green(c)
+                        bb += android.graphics.Color.blue(c)
+                        count++
+                    }
+                    blurredPixels[y * blurW + x] = android.graphics.Color.rgb(rr / count, gg / count, bb / count)
+                }
+            }
+            val blurred = Bitmap.createBitmap(blurW, blurH, Bitmap.Config.ARGB_8888)
+            blurred.setPixels(blurredPixels, 0, blurW, 0, 0, blurW, blurH)
+            if (!small.isRecycled) small.recycle()
+
+            val backdrop = android.graphics.drawable.BitmapDrawable(resources, blurred).apply {
                 gravity = Gravity.FILL
             }
             val shade = android.graphics.drawable.GradientDrawable(
                 android.graphics.drawable.GradientDrawable.Orientation.TOP_BOTTOM,
-                intArrayOf(0x66F8F5FA, 0x55F8F5FA, 0xAA241C30.toInt())
+                intArrayOf(0x66F8F5FA, 0x44F8F5FA, 0x99241C30.toInt())
             )
             root.background = android.graphics.drawable.LayerDrawable(arrayOf(backdrop, shade))
         } catch (_: Exception) {
