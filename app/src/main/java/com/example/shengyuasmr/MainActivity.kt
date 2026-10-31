@@ -211,7 +211,7 @@ class MainActivity : ComponentActivity() {
 
     private fun renderHome() {
         saveScriptScrollPosition()
-        updatePlaybackBackground()
+        root.setBackgroundColor(0xFFF8F5FA.toInt())
         currentScreen = "home"
         content.removeAllViews()
         val heading = LinearLayout(this).apply {
@@ -291,6 +291,7 @@ class MainActivity : ComponentActivity() {
             topMargin = dp(10)
             bottomMargin = dp(8)
         }
+        updateArtworkFrameBackground(artFrame)
         content.addView(artFrame, artLp)
         art.setOnClickListener {
             if (artworks.size > 1) {
@@ -306,13 +307,13 @@ class MainActivity : ComponentActivity() {
     }
 
     /**
-     * Uses the currently selected illustration as a soft, full-screen playback backdrop.
+     * Uses the current illustration as a softly blurred backdrop only inside the artwork frame.
      * The source is decoded at a small size to keep memory and CPU use modest on older phones.
      */
-    private fun updatePlaybackBackground() {
+    private fun updateArtworkFrameBackground(frame: FrameLayout) {
         val uri = artworks.getOrNull(currentArt % artworks.size)
         if (uri == null) {
-            root.setBackgroundColor(0xFFF8F5FA.toInt())
+            frame.setBackgroundColor(0xFFF0EAF5.toInt())
             return
         }
         try {
@@ -324,8 +325,8 @@ class MainActivity : ComponentActivity() {
             }
 
             // Decode a small source first, then center-crop it to the screen's aspect ratio.
-            val targetW = root.width.takeIf { it > 0 } ?: resources.displayMetrics.widthPixels
-            val targetH = root.height.takeIf { it > 0 } ?: resources.displayMetrics.heightPixels
+            val targetW = (resources.displayMetrics.widthPixels - dp(36)).coerceAtLeast(1)
+            val targetH = dp(420)
             val targetRatio = targetW.toFloat() / targetH.coerceAtLeast(1)
             val sample = maxOf(1, minOf(bounds.outWidth / 360, bounds.outHeight / 640))
             val options = BitmapFactory.Options().apply { inSampleSize = sample }
@@ -396,7 +397,7 @@ class MainActivity : ComponentActivity() {
                 android.graphics.drawable.GradientDrawable.Orientation.TOP_BOTTOM,
                 intArrayOf(0x24F8F5FA, 0x14F8F5FA, 0x99241C30.toInt())
             )
-            root.background = android.graphics.drawable.LayerDrawable(arrayOf(backdrop, veil, shade))
+            frame.background = android.graphics.drawable.LayerDrawable(arrayOf(backdrop, veil, shade))
         } catch (_: Exception) {
             root.setBackgroundColor(0xFFF8F5FA.toInt())
         }
