@@ -62,6 +62,9 @@ class MainActivity : ComponentActivity() {
     private var mediaSession: MediaSessionCompat? = null
     private val mediaNotificationId = 7301
     private val mediaChannelId = "shengyu_media_playback"
+    private val ACTION_MEDIA_PREVIOUS = "com.example.shengyuasmr.MEDIA_PREVIOUS"
+    private val ACTION_MEDIA_TOGGLE = "com.example.shengyuasmr.MEDIA_TOGGLE"
+    private val ACTION_MEDIA_NEXT = "com.example.shengyuasmr.MEDIA_NEXT"
     private var currentTrack = -1
     private var currentArt = 0
     private var showScript = false
@@ -169,11 +172,13 @@ class MainActivity : ComponentActivity() {
             uri?.let { contentResolver.openInputStream(it)?.use { stream -> BitmapFactory.decodeStream(stream) } }
         } catch (_: Exception) { null }
         val builder = MediaMetadataCompat.Builder()
-            .putString(MediaMetadataCompat.METADATA_KEY_TITLE, track.name.substringBeforeLast('.'))
-            .putString(MediaMetadataCompat.METADATA_KEY_ARTIST, currentFolderName)
+            .putString(MediaMetadataCompat.METADATA_KEY_TITLE, currentFolderName)
+            .putString(MediaMetadataCompat.METADATA_KEY_ARTIST, track.name.substringBeforeLast('.'))
             .putString(MediaMetadataCompat.METADATA_KEY_ALBUM, currentFolderName)
+            .putString(MediaMetadataCompat.METADATA_KEY_DISPLAY_TITLE, currentFolderName)
+            .putString(MediaMetadataCompat.METADATA_KEY_DISPLAY_SUBTITLE, track.name.substringBeforeLast('.'))
             .putLong(MediaMetadataCompat.METADATA_KEY_DURATION, try { player?.duration?.toLong() ?: 0L } catch (_: Exception) { 0L })
-        if (bitmap != null) builder.putBitmap(MediaMetadataCompat.METADATA_KEY_ART, bitmap)
+        if (bitmap != null) { builder.putBitmap(MediaMetadataCompat.METADATA_KEY_ART, bitmap); builder.putBitmap(MediaMetadataCompat.METADATA_KEY_ALBUM_ART, bitmap); builder.putBitmap(MediaMetadataCompat.METADATA_KEY_DISPLAY_ICON, bitmap) }
         mediaSession?.setMetadata(builder.build())
     }
 
@@ -188,10 +193,27 @@ class MainActivity : ComponentActivity() {
             .build())
     }
 
-    private fun mediaButtonPendingIntent(keyCode: Int, requestCode: Int): PendingIntent {
-        val intent = Intent(Intent.ACTION_MEDIA_BUTTON).setClass(this, MediaButtonReceiver::class.java)
-            .putExtra(Intent.EXTRA_KEY_EVENT, android.view.KeyEvent(android.view.KeyEvent.ACTION_DOWN, keyCode))
-        return PendingIntent.getBroadcast(this, requestCode, intent, PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
+    private fun mediaButtonPendingIntent(action: String, requestCode: Int): PendingIntent {
+        val intent = Intent(this, MainActivity::class.java).apply {
+            this.action = action
+            flags = Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_CLEAR_TOP
+        }
+        return PendingIntent.getActivity(this, requestCode, intent, PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        when (intent.action) {
+            ACTION_MEDIA_PREVIOUS -> if (currentTrack > 0) playTrack(currentTrack - 1)
+            ACTION_MEDIA_TOGGLE -> {
+                if (player?.isPlaying == true) { player?.pause(); updateMediaPlaybackState(false); updateMediaNotification() }
+                else if (currentTrack >= 0) { player?.start(); updateMediaPlaybackState(true); updateMediaNotification() }
+                else if (tracks.isNotEmpty()) playTrack(0)
+                if (currentScreen == "home") renderHome()
+            }
+            ACTION_MEDIA_NEXT -> if (currentTrack < tracks.lastIndex) playTrack(currentTrack + 1)
+        }
     }
 
     private fun updateMediaNotification() {
@@ -204,16 +226,17 @@ class MainActivity : ComponentActivity() {
         }, PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
         val builder = NotificationCompat.Builder(this, mediaChannelId)
             .setSmallIcon(android.R.drawable.ic_media_play)
-            .setContentTitle(track.name.substringBeforeLast('.'))
-            .setContentText(currentFolderName)
+            .setContentTitle(currentFolderName)
+            .setContentText(track.name.substringBeforeLast('.'))
             .setContentIntent(openApp)
             .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
             .setOnlyAlertOnce(true)
+            .setLargeIcon(try { val uri = artworks.getOrNull(currentArt) ?: works.firstOrNull { it.folder == folderUri }?.cover; uri?.let { contentResolver.openInputStream(it)?.use { stream -> BitmapFactory.decodeStream(stream) } } } catch (_: Exception) { null })
             .setOngoing(playing)
             .setShowWhen(false)
-            .addAction(android.R.drawable.ic_media_previous, "上一首", mediaButtonPendingIntent(android.view.KeyEvent.KEYCODE_MEDIA_PREVIOUS, 7303))
-            .addAction(if (playing) android.R.drawable.ic_media_pause else android.R.drawable.ic_media_play, if (playing) "暂停" else "播放", mediaButtonPendingIntent(if (playing) android.view.KeyEvent.KEYCODE_MEDIA_PAUSE else android.view.KeyEvent.KEYCODE_MEDIA_PLAY, 7304))
-            .addAction(android.R.drawable.ic_media_next, "下一首", mediaButtonPendingIntent(android.view.KeyEvent.KEYCODE_MEDIA_NEXT, 7305))
+            .addAction(android.R.drawable.ic_media_previous, "上一首", mediaButtonPendingIntent(ACTION_MEDIA_PREVIOUS, 7303))
+            .addAction(if (playing) android.R.drawable.ic_media_pause else android.R.drawable.ic_media_play, if (playing) "暂停" else "播放", mediaButtonPendingIntent(ACTION_MEDIA_TOGGLE, 7304))
+            .addAction(android.R.drawable.ic_media_next, "下一首", mediaButtonPendingIntent(ACTION_MEDIA_NEXT, 7305))
             .setStyle(MediaStyle().setMediaSession(mediaSession?.sessionToken).setShowActionsInCompactView(0, 1, 2))
         try {
             if (android.os.Build.VERSION.SDK_INT < 33 || checkSelfPermission(android.Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED) {
