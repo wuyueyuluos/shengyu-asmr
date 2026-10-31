@@ -125,7 +125,7 @@ class MainActivity : ComponentActivity() {
         brandText.addView(label("声屿", 27, 0xFF51435F.toInt(), true))
         brandText.addView(label("SHENGYU  ·  ASMR LIBRARY", 9, 0xFFA095AA.toInt(), true))
         brand.addView(brandText, LinearLayout.LayoutParams(0, -2, 1f))
-        fun addHeaderIcon(glyph: String, description: String, action: () -> Unit) {
+        fun addHeaderIcon(glyph: String, description: String, action: () -> Unit, longAction: (() -> Unit)? = null) {
             val icon = TextView(this).apply {
                 text = glyph
                 textSize = 23f
@@ -137,10 +137,11 @@ class MainActivity : ComponentActivity() {
                     cornerRadius = dp(14).toFloat()
                 }
                 setOnClickListener { action() }
+                if (longAction != null) setOnLongClickListener { longAction(); true }
             }
             brand.addView(icon, LinearLayout.LayoutParams(dp(44), dp(44)).apply { marginStart = dp(2) })
         }
-        addHeaderIcon("◷", "定时停止") { showSleepTimer() }
+        addHeaderIcon("◷", "定时停止", { showSleepTimer() }) { showSleepTimerPicker() }
         addHeaderIcon("☰", "设置") { showSettings() }
         content.addView(brand)
         val heading = LinearLayout(this).apply {
