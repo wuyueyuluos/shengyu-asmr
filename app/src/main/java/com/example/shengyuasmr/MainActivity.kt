@@ -1,7 +1,11 @@
 package com.example.shengyuasmr
 
 import android.app.Activity
+import android.app.NotificationChannel
+import android.app.NotificationManager
+import android.app.PendingIntent
 import android.content.Intent
+import android.content.pm.PackageManager
 import android.graphics.BitmapFactory
 import android.graphics.Bitmap
 import android.graphics.pdf.PdfRenderer
@@ -18,6 +22,13 @@ import android.view.Gravity
 import android.view.View
 import android.widget.*
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.core.app.NotificationCompat
+import androidx.core.app.NotificationManagerCompat
+import androidx.media.app.NotificationCompat.MediaStyle
+import android.support.v4.media.MediaMetadataCompat
+import android.support.v4.media.session.MediaSessionCompat
+import android.support.v4.media.session.PlaybackStateCompat
+import android.support.v4.media.session.MediaButtonReceiver
 import androidx.activity.OnBackPressedCallback
 import androidx.activity.ComponentActivity
 import androidx.documentfile.provider.DocumentFile
@@ -48,6 +59,9 @@ class MainActivity : ComponentActivity() {
     private val works = mutableListOf<LocalWork>()
     private var scanningFolder: Uri? = null
     private var player: MediaPlayer? = null
+    private var mediaSession: MediaSessionCompat? = null
+    private val mediaNotificationId = 7301
+    private val mediaChannelId = "shengyu_media_playback"
     private var currentTrack = -1
     private var currentArt = 0
     private var showScript = false
@@ -80,6 +94,7 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         buildShell()
+        setupMediaSession()
         loadWorks()
         onBackPressedDispatcher.addCallback(this, object : OnBackPressedCallback(true) {
             override fun handleOnBackPressed() {
@@ -110,6 +125,103 @@ class MainActivity : ComponentActivity() {
         content = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
         root.addView(content, LinearLayout.LayoutParams(-1, 0, 1f))
         setContentView(root)
+    }
+
+
+    private fun setupMediaSession() {
+        if (android.os.Build.VERSION.SDK_INT >= 26) {
+            val manager = getSystemService(NotificationManager::class.java)
+            manager.createNotificationChannel(NotificationChannel(mediaChannelId, "声屿播放控制", NotificationManager.IMPORTANCE_LOW).apply {
+                description = "显示当前播放作品和音轨，并提供播放控制"
+                setShowBadge(false)
+            })
+        }
+        mediaSession = MediaSessionCompat(this, "ShengyuASMR").apply {
+            setFlags(MediaSessionCompat.FLAG_HANDLES_MEDIA_BUTTONS or MediaSessionCompat.FLAG_HANDLES_TRANSPORT_CONTROLS)
+            setCallback(object : MediaSessionCompat.Callback() {
+                override fun onPlay() {
+                    if (player == null && tracks.isNotEmpty()) playTrack(if (currentTrack >= 0) currentTrack else 0)
+                    else if (player?.isPlaying == false) {
+                        player?.start(); updateMediaPlaybackState(true); updateMediaNotification()
+                        if (currentScreen == "home") renderHome()
+                    }
+                }
+                override fun onPause() {
+                    player?.pause(); updateMediaPlaybackState(false); updateMediaNotification()
+                    if (currentScreen == "home") renderHome()
+                }
+                override fun onSkipToNext() { if (currentTrack < tracks.lastIndex) playTrack(currentTrack + 1) }
+                override fun onSkipToPrevious() { if (currentTrack > 0) playTrack(currentTrack - 1) }
+                override fun onSeekTo(pos: Long) {
+                    player?.seekTo(pos.coerceIn(0, (player?.duration ?: 0).toLong()).toInt())
+                    savePlaybackMemory(); updateMediaPlaybackState(player?.isPlaying == true)
+                }
+            })
+            isActive = true
+        }
+        updateMediaPlaybackState(false)
+    }
+
+    private fun updateMediaMetadata() {
+        val track = tracks.getOrNull(currentTrack) ?: return
+        val bitmap = try {
+            val uri = artworks.getOrNull(currentArt) ?: works.firstOrNull { it.folder == folderUri }?.cover
+            uri?.let { contentResolver.openInputStream(it)?.use { stream -> BitmapFactory.decodeStream(stream) } }
+        } catch (_: Exception) { null }
+        val builder = MediaMetadataCompat.Builder()
+            .putString(MediaMetadataCompat.METADATA_KEY_TITLE, track.name.substringBeforeLast('.'))
+            .putString(MediaMetadataCompat.METADATA_KEY_ARTIST, currentFolderName)
+            .putString(MediaMetadataCompat.METADATA_KEY_ALBUM, currentFolderName)
+            .putLong(MediaMetadataCompat.METADATA_KEY_DURATION, try { player?.duration?.toLong() ?: 0L } catch (_: Exception) { 0L })
+        if (bitmap != null) builder.putBitmap(MediaMetadataCompat.METADATA_KEY_ART, bitmap)
+        mediaSession?.setMetadata(builder.build())
+    }
+
+    private fun updateMediaPlaybackState(playing: Boolean) {
+        val position = try { player?.currentPosition?.toLong() ?: resumePosition.toLong() } catch (_: Exception) { resumePosition.toLong() }
+        val actions = PlaybackStateCompat.ACTION_PLAY or PlaybackStateCompat.ACTION_PAUSE or
+            PlaybackStateCompat.ACTION_PLAY_PAUSE or PlaybackStateCompat.ACTION_SKIP_TO_NEXT or
+            PlaybackStateCompat.ACTION_SKIP_TO_PREVIOUS or PlaybackStateCompat.ACTION_SEEK_TO
+        mediaSession?.setPlaybackState(PlaybackStateCompat.Builder()
+            .setActions(actions)
+            .setState(if (playing) PlaybackStateCompat.STATE_PLAYING else PlaybackStateCompat.STATE_PAUSED, position, if (playing) 1f else 0f)
+            .build())
+    }
+
+    private fun mediaButtonPendingIntent(keyCode: Int, requestCode: Int): PendingIntent {
+        val intent = Intent(Intent.ACTION_MEDIA_BUTTON).setClass(this, MediaButtonReceiver::class.java)
+            .putExtra(Intent.EXTRA_KEY_EVENT, android.view.KeyEvent(android.view.KeyEvent.ACTION_DOWN, keyCode))
+        return PendingIntent.getBroadcast(this, requestCode, intent, PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
+    }
+
+    private fun updateMediaNotification() {
+        val track = tracks.getOrNull(currentTrack) ?: return
+        val playing = try { player?.isPlaying == true } catch (_: Exception) { false }
+        updateMediaMetadata()
+        updateMediaPlaybackState(playing)
+        val openApp = PendingIntent.getActivity(this, 7302, Intent(this, MainActivity::class.java).apply {
+            flags = Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_CLEAR_TOP
+        }, PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
+        val builder = NotificationCompat.Builder(this, mediaChannelId)
+            .setSmallIcon(android.R.drawable.ic_media_play)
+            .setContentTitle(track.name.substringBeforeLast('.'))
+            .setContentText(currentFolderName)
+            .setContentIntent(openApp)
+            .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
+            .setOnlyAlertOnce(true)
+            .setOngoing(playing)
+            .setShowWhen(false)
+            .addAction(android.R.drawable.ic_media_previous, "上一首", mediaButtonPendingIntent(android.view.KeyEvent.KEYCODE_MEDIA_PREVIOUS, 7303))
+            .addAction(if (playing) android.R.drawable.ic_media_pause else android.R.drawable.ic_media_play, if (playing) "暂停" else "播放", mediaButtonPendingIntent(if (playing) android.view.KeyEvent.KEYCODE_MEDIA_PAUSE else android.view.KeyEvent.KEYCODE_MEDIA_PLAY, 7304))
+            .addAction(android.R.drawable.ic_media_next, "下一首", mediaButtonPendingIntent(android.view.KeyEvent.KEYCODE_MEDIA_NEXT, 7305))
+            .setStyle(MediaStyle().setMediaSession(mediaSession?.sessionToken).setShowActionsInCompactView(0, 1, 2))
+        try {
+            if (android.os.Build.VERSION.SDK_INT < 33 || checkSelfPermission(android.Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED) {
+                NotificationManagerCompat.from(this).notify(mediaNotificationId, builder.build())
+            } else if (android.os.Build.VERSION.SDK_INT >= 33) {
+                requestPermissions(arrayOf(android.Manifest.permission.POST_NOTIFICATIONS), 7306)
+            }
+        } catch (_: SecurityException) { }
     }
 
     private fun renderLibrary() {
@@ -863,7 +975,7 @@ class MainActivity : ComponentActivity() {
             player?.release()
             player = MediaPlayer().apply {
                 setDataSource(this@MainActivity, tracks[index].uri)
-                setOnCompletionListener { if (index < tracks.lastIndex) playTrack(index + 1) }
+                setOnCompletionListener { if (index < tracks.lastIndex) playTrack(index + 1) else { updateMediaPlaybackState(false); updateMediaNotification() } }
                 prepare()
                 if (startAt > 0) seekTo(startAt.coerceAtMost(duration))
                 start()
@@ -871,6 +983,9 @@ class MainActivity : ComponentActivity() {
             currentTrack = index
             resumePosition = startAt.coerceAtLeast(0)
             savePlaybackMemory()
+            updateMediaMetadata()
+            updateMediaPlaybackState(true)
+            updateMediaNotification()
             if (showScript) loadScript() else renderHome()
         } catch (e: Exception) {
             Toast.makeText(this, "无法播放此音频格式：${e.message ?: ""}", Toast.LENGTH_LONG).show()
@@ -975,7 +1090,7 @@ class MainActivity : ComponentActivity() {
         val row = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER; setPadding(0, dp(5), 0, dp(2)) }
         fun addControl(title: String, action: () -> Unit, primary: Boolean = false) { val control = TextView(this).apply { text = title; textSize = if (primary) 24f else 19f; gravity = Gravity.CENTER; setTextColor(if (primary) 0xFFFFFFFF.toInt() else 0xFF6D5D7D.toInt()); background = android.graphics.drawable.GradientDrawable().apply { cornerRadius = dp(if (primary) 28 else 18).toFloat(); setColor(if (primary) 0xFF927DAA.toInt() else 0xFFEDE5F2.toInt()) }; if (primary) elevation = dp(3).toFloat(); setOnClickListener { action() } }; row.addView(control, LinearLayout.LayoutParams(0, dp(if (primary) 56 else 48), 1f).apply { setMargins(dp(3), 0, dp(3), 0) }) }
         addControl("☷", { showTrackList() }); addControl("↶", { player?.let { p -> val seconds = getSharedPreferences("shengyu_settings", MODE_PRIVATE).getInt("seek_back_seconds", 15); p.seekTo((p.currentPosition - seconds * 1000).coerceAtLeast(0)) } })
-        addControl(if (player?.isPlaying == true) "Ⅱ" else "▶", { if (player?.isPlaying == true) { player?.pause(); if (showScript) loadScript() else renderHome() } else if (currentTrack >= 0) { player?.start(); if (showScript) loadScript() else renderHome() } else if (tracks.isNotEmpty()) playTrack(0) }, true)
+        addControl(if (player?.isPlaying == true) "Ⅱ" else "▶", { if (player?.isPlaying == true) { player?.pause(); updateMediaPlaybackState(false); updateMediaNotification(); if (showScript) loadScript() else renderHome() } else if (currentTrack >= 0) { player?.start(); updateMediaPlaybackState(true); updateMediaNotification(); if (showScript) loadScript() else renderHome() } else if (tracks.isNotEmpty()) playTrack(0) }, true)
         addControl("↷", { player?.let { p -> val seconds = getSharedPreferences("shengyu_settings", MODE_PRIVATE).getInt("seek_forward_seconds", 15); p.seekTo((p.currentPosition + seconds * 1000).coerceAtMost(p.duration)) } })
         addControl("▤", { if (showScript) { showScript = false; renderHome() } else if (scripts.isNotEmpty()) { showScript = true; loadScript() } else Toast.makeText(this, "这个作品没有台本。", Toast.LENGTH_SHORT).show() })
         content.addView(row)
