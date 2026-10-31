@@ -61,6 +61,9 @@ class MainActivity : ComponentActivity() {
     private var libraryFilter = "全部作品"
     private var appliedTags = linkedSetOf<String>()
     private val progressHandler = Handler(Looper.getMainLooper())
+    private val timerHandler = Handler(Looper.getMainLooper())
+    private var sleepTimerEndAt = 0L
+    private var sleepTimerRunnable: Runnable? = null
     private var progressBar: SeekBar? = null
     private var elapsedLabel: TextView? = null
     private var durationLabel: TextView? = null
@@ -113,9 +116,32 @@ class MainActivity : ComponentActivity() {
         root.setBackgroundColor(0xFFF8F5FA.toInt())
         currentScreen = "library"
         content.removeAllViews()
-        val brand = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setPadding(dp(2), dp(4), dp(2), dp(12)) }
-        brand.addView(label("声屿", 27, 0xFF51435F.toInt(), true))
-        brand.addView(label("SHENGYU  ·  ASMR LIBRARY", 9, 0xFFA095AA.toInt(), true))
+        val brand = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            setPadding(dp(2), dp(4), dp(2), dp(12))
+        }
+        val brandText = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
+        brandText.addView(label("声屿", 27, 0xFF51435F.toInt(), true))
+        brandText.addView(label("SHENGYU  ·  ASMR LIBRARY", 9, 0xFFA095AA.toInt(), true))
+        brand.addView(brandText, LinearLayout.LayoutParams(0, -2, 1f))
+        fun addHeaderIcon(glyph: String, description: String, action: () -> Unit) {
+            val icon = TextView(this).apply {
+                text = glyph
+                textSize = 23f
+                gravity = Gravity.CENTER
+                contentDescription = description
+                setTextColor(0xFF756681.toInt())
+                background = android.graphics.drawable.GradientDrawable().apply {
+                    setColor(0x00FFFFFF)
+                    cornerRadius = dp(14).toFloat()
+                }
+                setOnClickListener { action() }
+            }
+            brand.addView(icon, LinearLayout.LayoutParams(dp(44), dp(44)).apply { marginStart = dp(2) })
+        }
+        addHeaderIcon("◷", "定时停止") { showSleepTimer() }
+        addHeaderIcon("☰", "设置") { showSettings() }
         content.addView(brand)
         val heading = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL
@@ -311,6 +337,7 @@ class MainActivity : ComponentActivity() {
      * The source is decoded at a small size to keep memory and CPU use modest on older phones.
      */
     private fun updateArtworkFrameBackground(frame: FrameLayout) {
+        if (!getSharedPreferences("shengyu_settings", MODE_PRIVATE).getBoolean("artwork_blur_background", true)) return
         val uri = artworks.getOrNull(currentArt % artworks.size)
         if (uri == null) {
             frame.setBackgroundColor(0xFFF0EAF5.toInt())
@@ -860,9 +887,9 @@ class MainActivity : ComponentActivity() {
         progressRow.addView(progressBar); content.addView(progressRow); progressHandler.removeCallbacks(progressUpdater); progressHandler.post(progressUpdater)
         val row = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER; setPadding(0, dp(5), 0, dp(2)) }
         fun addControl(title: String, action: () -> Unit, primary: Boolean = false) { val control = TextView(this).apply { text = title; textSize = if (primary) 24f else 19f; gravity = Gravity.CENTER; setTextColor(if (primary) 0xFFFFFFFF.toInt() else 0xFF6D5D7D.toInt()); background = android.graphics.drawable.GradientDrawable().apply { cornerRadius = dp(if (primary) 28 else 18).toFloat(); setColor(if (primary) 0xFF927DAA.toInt() else 0xFFEDE5F2.toInt()) }; if (primary) elevation = dp(3).toFloat(); setOnClickListener { action() } }; row.addView(control, LinearLayout.LayoutParams(0, dp(if (primary) 56 else 48), 1f).apply { setMargins(dp(3), 0, dp(3), 0) }) }
-        addControl("☷", { showTrackList() }); addControl("↶", { player?.let { it.seekTo((it.currentPosition - 15000).coerceAtLeast(0)) } })
+        addControl("☷", { showTrackList() }); addControl("↶", { player?.let { p -> val seconds = getSharedPreferences("shengyu_settings", MODE_PRIVATE).getInt("seek_back_seconds", 15); p.seekTo((p.currentPosition - seconds * 1000).coerceAtLeast(0)) } })
         addControl(if (player?.isPlaying == true) "Ⅱ" else "▶", { if (player?.isPlaying == true) { player?.pause(); if (showScript) loadScript() else renderHome() } else if (currentTrack >= 0) { player?.start(); if (showScript) loadScript() else renderHome() } else if (tracks.isNotEmpty()) playTrack(0) }, true)
-        addControl("↷", { player?.let { it.seekTo((it.currentPosition + 15000).coerceAtMost(it.duration)) } })
+        addControl("↷", { player?.let { p -> val seconds = getSharedPreferences("shengyu_settings", MODE_PRIVATE).getInt("seek_forward_seconds", 15); p.seekTo((p.currentPosition + seconds * 1000).coerceAtMost(p.duration)) } })
         addControl("▤", { if (showScript) { showScript = false; renderHome() } else if (scripts.isNotEmpty()) { showScript = true; loadScript() } else Toast.makeText(this, "这个作品没有台本。", Toast.LENGTH_SHORT).show() })
         content.addView(row)
     }
@@ -1031,8 +1058,122 @@ class MainActivity : ComponentActivity() {
     private fun showSettings() {
         android.app.AlertDialog.Builder(this)
             .setTitle("设置")
-            .setItems(arrayOf("导入作品文件夹", "返回作品库")) { _, which -> if (which == 0) { scanningFolder = null; pickFolder.launch(null) } else renderLibrary() }
+            .setItems(arrayOf("播放设置", "外观", "关于")) { _, which ->
+                when (which) {
+                    0 -> showPlaybackSettings()
+                    1 -> showAppearanceSettings()
+                    2 -> showAbout()
+                }
+            }
             .setNegativeButton("关闭", null).showStyled()
+    }
+
+    private fun showPlaybackSettings() {
+        val prefs = getSharedPreferences("shengyu_settings", MODE_PRIVATE)
+        val options = arrayOf("5 秒", "10 秒", "15 秒", "20 秒", "30 秒", "60 秒")
+        val values = intArrayOf(5, 10, 15, 20, 30, 60)
+        fun chooseSeconds(key: String, title: String) {
+            val current = prefs.getInt(key, 15)
+            val selected = values.indexOf(current).coerceAtLeast(0)
+            android.app.AlertDialog.Builder(this)
+                .setTitle(title)
+                .setSingleChoiceItems(options, selected) { dialog, which ->
+                    prefs.edit().putInt(key, values[which]).apply()
+                    dialog.dismiss()
+                    showPlaybackSettings()
+                }
+                .setNegativeButton("返回", null)
+                .showStyled()
+        }
+        android.app.AlertDialog.Builder(this)
+            .setTitle("播放设置")
+            .setItems(arrayOf(
+                "回退按键：${prefs.getInt("seek_back_seconds", 15)} 秒",
+                "前进按键：${prefs.getInt("seek_forward_seconds", 15)} 秒"
+            )) { _, which ->
+                if (which == 0) chooseSeconds("seek_back_seconds", "回退多少秒")
+                else chooseSeconds("seek_forward_seconds", "前进多少秒")
+            }
+            .setNegativeButton("完成", null)
+            .showStyled()
+    }
+
+    private fun showAppearanceSettings() {
+        val prefs = getSharedPreferences("shengyu_settings", MODE_PRIVATE)
+        val useBlur = prefs.getBoolean("artwork_blur_background", true)
+        android.app.AlertDialog.Builder(this)
+            .setTitle("外观")
+            .setSingleChoiceItems(arrayOf("插画动态模糊背景", "柔和主色背景"), if (useBlur) 0 else 1) { dialog, which ->
+                prefs.edit().putBoolean("artwork_blur_background", which == 0).apply()
+                dialog.dismiss()
+                if (currentScreen == "home" || currentScreen == "script" || currentScreen == "tracklist") {
+                    if (showScript) loadScript() else renderHome()
+                }
+            }
+            .setNegativeButton("完成", null)
+            .showStyled()
+    }
+
+    private fun showAbout() {
+        val message = "声屿 ASMR\n本地音频与台本播放器\n\n作品和播放记录保存在你的设备上。"
+        android.app.AlertDialog.Builder(this)
+            .setTitle("关于声屿")
+            .setMessage(message)
+            .setPositiveButton("知道了", null)
+            .showStyled()
+    }
+
+    private fun showSleepTimer() {
+        val choices = arrayOf("15 分钟后停止", "30 分钟后停止", "45 分钟后停止", "60 分钟后停止", "90 分钟后停止", "取消当前定时")
+        android.app.AlertDialog.Builder(this)
+            .setTitle(if (sleepTimerEndAt > System.currentTimeMillis()) "定时停止（剩余 ${formatTimerRemaining()}）" else "定时停止")
+            .setItems(choices) { _, which ->
+                if (which == choices.lastIndex) {
+                    cancelSleepTimer()
+                    Toast.makeText(this, "已取消定时停止", Toast.LENGTH_SHORT).show()
+                } else {
+                    val minutes = intArrayOf(15, 30, 45, 60, 90)[which]
+                    startSleepTimer(minutes)
+                }
+            }
+            .setNegativeButton("关闭", null)
+            .showStyled()
+    }
+
+    private fun formatTimerRemaining(): String {
+        val seconds = ((sleepTimerEndAt - System.currentTimeMillis()).coerceAtLeast(0L) / 1000L).toInt()
+        return "${seconds / 60} 分 ${seconds % 60} 秒"
+    }
+
+    private fun startSleepTimer(minutes: Int) {
+        cancelSleepTimer()
+        sleepTimerEndAt = System.currentTimeMillis() + minutes * 60_000L
+        val task = object : Runnable {
+            override fun run() {
+                val remaining = sleepTimerEndAt - System.currentTimeMillis()
+                if (remaining <= 0L) {
+                    sleepTimerRunnable = null
+                    sleepTimerEndAt = 0L
+                    try { player?.pause() } catch (_: Exception) { }
+                    savePlaybackMemory()
+                    if (currentScreen == "home" || currentScreen == "script" || currentScreen == "tracklist") {
+                        if (showScript) loadScript() else renderHome()
+                    }
+                    Toast.makeText(this@MainActivity, "定时结束，已停止播放", Toast.LENGTH_LONG).show()
+                } else {
+                    timerHandler.postDelayed(this, minOf(remaining, 1000L))
+                }
+            }
+        }
+        sleepTimerRunnable = task
+        timerHandler.post(task)
+        Toast.makeText(this, "已设置 ${minutes} 分钟后停止", Toast.LENGTH_SHORT).show()
+    }
+
+    private fun cancelSleepTimer() {
+        sleepTimerRunnable?.let { timerHandler.removeCallbacks(it) }
+        sleepTimerRunnable = null
+        sleepTimerEndAt = 0L
     }
 
     private fun android.app.AlertDialog.Builder.showStyled(): android.app.AlertDialog {
@@ -1165,6 +1306,7 @@ class MainActivity : ComponentActivity() {
     override fun onDestroy() {
         savePlaybackMemory()
         progressHandler.removeCallbacks(progressUpdater)
+        cancelSleepTimer()
         player?.release(); player = null
         super.onDestroy()
     }
