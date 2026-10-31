@@ -82,7 +82,11 @@ class MainActivity : ComponentActivity() {
     private fun saveLibraryScrollPosition() {
         if (currentScreen != "library") return
         val scroll = content.getChildAt(2) as? ScrollView
-        if (scroll != null) libraryScrollY = scroll.scrollY
+        if (scroll != null) {
+            libraryScrollY = scroll.scrollY
+            getSharedPreferences("shengyu_playback", MODE_PRIVATE).edit()
+                .putLong("library_scroll_y", libraryScrollY.toLong()).apply()
+        }
     }
 
     private fun decodeLibraryThumbnail(uri: Uri): Bitmap? {
