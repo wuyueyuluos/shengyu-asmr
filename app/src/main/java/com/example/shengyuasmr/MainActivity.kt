@@ -1186,7 +1186,7 @@ class MainActivity : ComponentActivity() {
                                     val scale = (targetW.toFloat() / page.width).coerceAtMost(1.25f)
                                     val w = (page.width * scale).toInt().coerceAtLeast(1)
                                     val h = (page.height * scale).toInt().coerceAtLeast(1)
-                                    val bitmap = Bitmap.createBitmap(w, h, Bitmap.Config.RGB_565)
+                                    val bitmap = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888)
                                     page.render(bitmap, null, null, PdfRenderer.Page.RENDER_MODE_FOR_DISPLAY)
                                     pdfRenderHandler.post {
                                         if (i < pageViews.size) pageViews[i].setImageBitmap(bitmap)
