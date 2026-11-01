@@ -220,8 +220,11 @@ class MainActivity : ComponentActivity() {
         android.graphics.Color.colorToHSV(color, hsv)
         val saturation = hsv[1]
         val value = hsv[2]
-        // Keep transparent pixels, pure whites, neutral grays and deep image-preview surfaces intact.
-        if (saturation < 0.025f || value < 0.22f) return color
+        // Preserve transparent pixels and intentionally dark image-preview surfaces.
+        // Near-white neutral backgrounds must still be converted or pages stay light while
+        // text turns pale, causing the low-contrast result reported.
+        if (value < 0.22f) return color
+        if (saturation < 0.025f && value > 0.995f) return color // Pure white control glyphs.
 
         val mapped = when {
             value >= 0.985f -> 0xFF302C38.toInt()  // Dialogs and elevated surfaces
@@ -695,12 +698,13 @@ class MainActivity : ComponentActivity() {
         if (sample !== bitmap && !sample.isRecycled) sample.recycle()
         if (count == 0L) return themeColor(0x55DCCFE8.toInt())
         val night = isNightMode()
-        val blend = if (night) 0.16 else 0.24
-        val base = if (night) 40 else 255
+        val blend = 0.10
+        val base = 38
         val r = ((red / count) * blend + base * (1.0 - blend)).toInt().coerceIn(0, 255)
         val g = ((green / count) * blend + base * (1.0 - blend)).toInt().coerceIn(0, 255)
         val b = ((blue / count) * blend + base * (1.0 - blend)).toInt().coerceIn(0, 255)
-        return android.graphics.Color.argb(if (night) 150 else 125, r, g, b)
+        // Opaque in night mode so the large surround cannot turn gray against a light window.
+        return android.graphics.Color.argb(if (night) 255 else 125, r, g, b)
     }
 
     private fun filteredWorks(): List<LocalWork> {
