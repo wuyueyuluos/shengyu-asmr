@@ -116,6 +116,12 @@ class MainActivity : ComponentActivity() {
     private var resumePosition = 0
     private var folderUri: Uri? = null
     private var pickingLibraryRoot = false
+    private val exportTagFile = registerForActivityResult(ActivityResultContracts.CreateDocument("application/json")) { uri ->
+        if (uri != null) exportTagCatalog(uri)
+    }
+    private val importTagFile = registerForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+        if (uri != null) importTagCatalog(uri)
+    }
     private val pickFolder = registerForActivityResult(ActivityResultContracts.OpenDocumentTree()) { uri ->
         if (uri != null) {
             try { contentResolver.takePersistableUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION) } catch (_: SecurityException) { }
@@ -624,32 +630,107 @@ class MainActivity : ComponentActivity() {
             if (i == 4) showTagFilter() else { libraryFilter = choices[i]; appliedTags.clear(); getSharedPreferences("shengyu_library", MODE_PRIVATE).edit().putString("library_filter", libraryFilter).putString("applied_filter_tags", "[]").apply(); renderLibrary() }
         }.setNegativeButton("取消", null).showStyled()
     }
-    private fun showTagFilter() {
+    private fun loadTagCatalog(): LinkedHashMap<String, MutableList<String>> {
         val prefs = getSharedPreferences("shengyu_library", MODE_PRIVATE)
-        val catalog = linkedMapOf<String, MutableList<String>>()
         val names = listOf("CV", "社团", "自定义")
+        val catalog = linkedMapOf<String, MutableList<String>>()
         val saved = prefs.getString("tag_catalog", null)
         if (saved != null) {
             try {
                 val json = JSONObject(saved)
                 names.forEach { name ->
                     val arr = json.optJSONArray(name) ?: JSONArray()
-                    catalog[name] = (0 until arr.length()).map { arr.optString(it).trim() }.filter { it.isNotBlank() }.distinct().toMutableList()
+                    catalog[name] = (0 until arr.length()).map { arr.optString(it).trim() }
+                        .filter { it.isNotBlank() }.distinct().toMutableList()
                 }
-            } catch (_: Exception) { }
+            } catch (_: Exception) { catalog.clear() }
         }
         if (catalog.isEmpty()) {
-            catalog["CV"] = works.flatMap { it.cv.split(",", "，", "、") }.map { it.trim() }.filter { it.isNotBlank() }.distinct().toMutableList()
-            catalog["社团"] = works.flatMap { it.circle.split(",", "，", "、") }.map { it.trim() }.filter { it.isNotBlank() }.distinct().toMutableList()
-            catalog["自定义"] = works.flatMap { it.tags }.map { it.trim() }.filter { it.isNotBlank() }.distinct().toMutableList()
+            catalog["CV"] = works.flatMap { it.cv.split(",", "，", "、") }.map { it.trim() }
+                .filter { it.isNotBlank() }.distinct().toMutableList()
+            catalog["社团"] = works.flatMap { it.circle.split(",", "，", "、") }.map { it.trim() }
+                .filter { it.isNotBlank() }.distinct().toMutableList()
+            catalog["自定义"] = works.flatMap { it.tags }.map { it.trim() }
+                .filter { it.isNotBlank() }.distinct().toMutableList()
         }
         names.forEach { if (catalog[it] == null) catalog[it] = mutableListOf() }
-        fun saveCatalog() {
-            val json = JSONObject()
-            catalog.forEach { (name, tags) -> json.put(name, JSONArray(tags)) }
-            prefs.edit().putString("tag_catalog", json.toString()).apply()
+        return catalog
+    }
+
+    private fun saveTagCatalog(catalog: Map<String, List<String>>) {
+        val json = JSONObject()
+        listOf("CV", "社团", "自定义").forEach { name ->
+            json.put(name, JSONArray(catalog[name] ?: emptyList<String>()))
         }
-        saveCatalog()
+        getSharedPreferences("shengyu_library", MODE_PRIVATE).edit()
+            .putString("tag_catalog", json.toString()).apply()
+    }
+
+    private fun exportTagCatalog(uri: Uri) {
+        try {
+            val catalog = loadTagCatalog()
+            val tags = JSONObject()
+            listOf("CV", "社团", "自定义").forEach { name ->
+                tags.put(name, JSONArray(catalog[name] ?: emptyList<String>()))
+            }
+            val document = JSONObject().put("app", "声屿 ASMR").put("formatVersion", 1)
+                .put("createdAt", System.currentTimeMillis()).put("tags", tags)
+            val output = contentResolver.openOutputStream(uri, "wt")
+                ?: throw IllegalStateException("无法创建导出文件")
+            output.use { it.write(document.toString(2).toByteArray(Charsets.UTF_8)) }
+            val total = catalog.values.sumOf { it.size }
+            Toast.makeText(this, "标签已导出，共 $total 个", Toast.LENGTH_LONG).show()
+        } catch (e: Exception) {
+            Toast.makeText(this, "导出失败：${e.message ?: "无法写入文件"}", Toast.LENGTH_LONG).show()
+        }
+    }
+
+    private fun importTagCatalog(uri: Uri) {
+        try {
+            val input = contentResolver.openInputStream(uri)
+                ?: throw IllegalStateException("无法读取所选文件")
+            val bytes = input.use { it.readBytes() }
+            if (bytes.isEmpty() || bytes.size > 1024 * 1024) {
+                throw IllegalArgumentException("文件为空或超过 1 MB")
+            }
+            val document = JSONObject(String(bytes, Charsets.UTF_8).removePrefix("\uFEFF"))
+            if (document.optInt("formatVersion", -1) != 1) {
+                throw IllegalArgumentException("不支持的标签文件版本")
+            }
+            val source = document.optJSONObject("tags")
+                ?: throw IllegalArgumentException("文件中没有标签数据")
+            val imported = linkedMapOf<String, List<String>>()
+            listOf("CV", "社团", "自定义").forEach { name ->
+                val array = source.optJSONArray(name) ?: JSONArray()
+                imported[name] = (0 until array.length()).map { array.optString(it).trim() }
+                    .filter { it.isNotBlank() }.distinct()
+            }
+            val incomingCount = imported.values.sumOf { it.size }
+            if (incomingCount == 0) throw IllegalArgumentException("文件中没有可导入的标签")
+            val existing = loadTagCatalog()
+            var addedCount = 0
+            imported.forEach { (group, values) ->
+                val bucket = existing[group] ?: mutableListOf<String>().also { existing[group] = it }
+                values.forEach { value -> if (value !in bucket) { bucket.add(value); addedCount++ } }
+            }
+            val groupSummary = listOf("CV", "社团", "自定义").joinToString("、") { group ->
+                "$group ${imported[group]?.size ?: 0} 个"
+            }
+            android.app.AlertDialog.Builder(this).setTitle("导入标签")
+                .setMessage("文件包含：$groupSummary\n\n导入会与当前标签目录合并，重复标签自动跳过；不会修改任何作品资料。")
+                .setPositiveButton("合并导入") { _, _ ->
+                    saveTagCatalog(existing)
+                    Toast.makeText(this, "导入完成，新增 $addedCount 个标签", Toast.LENGTH_LONG).show()
+                }.setNegativeButton("取消", null).showStyled()
+        } catch (e: Exception) {
+            Toast.makeText(this, "导入失败：${e.message ?: "文件格式不正确"}", Toast.LENGTH_LONG).show()
+        }
+    }
+    private fun showTagFilter() {
+        val prefs = getSharedPreferences("shengyu_library", MODE_PRIVATE)
+        val names = listOf("CV", "社团", "自定义")
+        val catalog = loadTagCatalog()
+        fun saveCatalog() = saveTagCatalog(catalog)
         val selected = appliedTags.toMutableSet()
         val collapsed = mutableSetOf<String>()
         var editing = false
