@@ -337,8 +337,8 @@ class MainActivity : ComponentActivity() {
                     player?.pause(); updateMediaPlaybackState(false); updateMediaNotification()
                     if (currentScreen == "home") renderHome()
                 }
-                override fun onSkipToNext() { if (currentTrack < tracks.lastIndex) playTrack(currentTrack + 1) }
-                override fun onSkipToPrevious() { if (currentTrack > 0) playTrack(currentTrack - 1) }
+                override fun onSkipToNext() { if (playbackTrackIndex < playbackTracks.lastIndex) playTrack(playbackTrackIndex + 1, trackSource = playbackTracks, workFolder = playbackFolderUri, workName = playbackFolderName, workArts = playbackArtworks, updateSelection = folderUri == playbackFolderUri, updateUi = folderUri == playbackFolderUri) }
+                override fun onSkipToPrevious() { if (playbackTrackIndex > 0) playTrack(playbackTrackIndex - 1, trackSource = playbackTracks, workFolder = playbackFolderUri, workName = playbackFolderName, workArts = playbackArtworks, updateSelection = folderUri == playbackFolderUri, updateUi = folderUri == playbackFolderUri) }
                 override fun onSeekTo(pos: Long) {
                     player?.seekTo(pos.coerceIn(0, (player?.duration ?: 0).toLong()).toInt())
                     savePlaybackMemory(); updateMediaPlaybackState(player?.isPlaying == true)
@@ -389,14 +389,14 @@ class MainActivity : ComponentActivity() {
         super.onNewIntent(intent)
         setIntent(intent)
         when (intent.action) {
-            ACTION_MEDIA_PREVIOUS -> if (currentTrack > 0) playTrack(currentTrack - 1)
+            ACTION_MEDIA_PREVIOUS -> if (playbackTrackIndex > 0) playTrack(playbackTrackIndex - 1, trackSource = playbackTracks, workFolder = playbackFolderUri, workName = playbackFolderName, workArts = playbackArtworks, updateSelection = folderUri == playbackFolderUri, updateUi = folderUri == playbackFolderUri)
             ACTION_MEDIA_TOGGLE -> {
                 if (player?.isPlaying == true) { player?.pause(); updateMediaPlaybackState(false); updateMediaNotification() }
                 else if (currentTrack >= 0) { player?.start(); updateMediaPlaybackState(true); updateMediaNotification() }
                 else if (tracks.isNotEmpty()) playTrack(0)
                 if (currentScreen == "home") renderHome()
             }
-            ACTION_MEDIA_NEXT -> if (currentTrack < tracks.lastIndex) playTrack(currentTrack + 1)
+            ACTION_MEDIA_NEXT -> if (playbackTrackIndex < playbackTracks.lastIndex) playTrack(playbackTrackIndex + 1, trackSource = playbackTracks, workFolder = playbackFolderUri, workName = playbackFolderName, workArts = playbackArtworks, updateSelection = folderUri == playbackFolderUri, updateUi = folderUri == playbackFolderUri)
         }
     }
 
