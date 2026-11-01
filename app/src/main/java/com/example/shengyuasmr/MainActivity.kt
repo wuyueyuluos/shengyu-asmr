@@ -1078,7 +1078,7 @@ class MainActivity : ComponentActivity() {
         var displayHeight: Float = 0f
     )
 
-    private data class PdfRenderedPage(val quality: Int, val bitmap: Bitmap)
+    private data class PdfRenderedPage(val quality: Float, val bitmap: Bitmap)
 
     /**
      * One zoom/pan surface for the whole document. PDF pages are rendered only when
@@ -1092,6 +1092,7 @@ class MainActivity : ComponentActivity() {
         private val pageInfo = mutableListOf<PdfPageInfo>()
         private val renderedPages = LinkedHashMap<Int, PdfRenderedPage>(8, 0.75f, true)
         private val pendingRenders = mutableSetOf<String>()
+        private val visiblePageIndices = linkedSetOf<Int>()
         private var renderer: PdfRenderer? = null
         private var descriptor: ParcelFileDescriptor? = null
         private var documentHeight = 0f
@@ -1205,22 +1206,30 @@ class MainActivity : ComponentActivity() {
             offsetY = if (minY > 0f) 0f else offsetY.coerceIn(minY, 0f)
         }
 
-        private fun requiredQuality(): Int = when {
-            zoom >= 2.4f -> 3
-            zoom >= 1.35f -> 2
-            else -> 1
+        // Rasterize only up to a bounded resolution. At high screen densities, rendering
+        // every page at 3x can make a single ARGB_8888 page larger than the whole cache.
+        private fun requiredQuality(): Float = zoom.coerceAtMost(1.65f)
+
+        private fun effectivePageQuality(metric: PdfPageInfo, requested: Float): Float {
+            val pageWidth = metric.displayWidth.coerceAtLeast(1f)
+            val pageHeight = metric.displayHeight.coerceAtLeast(1f)
+            val edgeLimit = 2400f / maxOf(pageWidth, pageHeight)
+            val pixelLimit = kotlin.math.sqrt(4_000_000f / (pageWidth * pageHeight))
+            return minOf(requested, edgeLimit, pixelLimit).coerceAtLeast(0.5f)
         }
 
-        private fun requestPageRender(index: Int, quality: Int) {
+        private fun requestPageRender(index: Int, requestedQuality: Float) {
             if (disposed || index !in pageInfo.indices) return
+            val metric = pageInfo[index]
+            val quality = effectivePageQuality(metric, requestedQuality)
             val cached = renderedPages[index]
             if (cached != null && cached.quality >= quality) return
-            val key = index.toString() + ":" + quality.toString()
+            val qualityKey = (quality * 100f).toInt()
+            val key = index.toString() + ":" + qualityKey.toString()
             if (!pendingRenders.add(key)) return
-            val metric = pageInfo[index]
+
             val renderWidth = (metric.displayWidth * quality).toInt().coerceAtLeast(1)
-            val renderHeight = (renderWidth.toFloat() * metric.originalHeight / metric.originalWidth)
-                .toInt().coerceAtLeast(1)
+            val renderHeight = (metric.displayHeight * quality).toInt().coerceAtLeast(1)
             try {
                 renderExecutor.execute {
                     var bitmap: Bitmap? = null
@@ -1249,6 +1258,16 @@ class MainActivity : ComponentActivity() {
                             invalidate()
                             return@post
                         }
+
+                        // An older/lower-resolution request may finish after a newer one.
+                        // Never replace a better page image with a worse one.
+                        val existing = renderedPages[index]
+                        if (existing != null && existing.quality >= quality) {
+                            completed.recycle()
+                            invalidate()
+                            return@post
+                        }
+
                         val old = renderedPages.remove(index)
                         if (old != null) {
                             cachedBytes -= old.bitmap.byteCount.toLong()
@@ -1256,7 +1275,7 @@ class MainActivity : ComponentActivity() {
                         }
                         renderedPages[index] = PdfRenderedPage(quality, completed)
                         cachedBytes += completed.byteCount.toLong()
-                        trimBitmapCache()
+                        trimBitmapCache(visiblePageIndices)
                         invalidate()
                     }
                 }
@@ -1265,15 +1284,15 @@ class MainActivity : ComponentActivity() {
             }
         }
 
-        private fun trimBitmapCache() {
-            val limit = 28L * 1024L * 1024L
+        private fun trimBitmapCache(protectedPages: Set<Int> = emptySet()) {
+            // Keep the pages currently on screen even when a zoom render completes.
+            // Each bitmap is separately bounded to about 4 megapixels.
+            val limit = 64L * 1024L * 1024L
             while (cachedBytes > limit && renderedPages.size > 1) {
-                val iterator = renderedPages.entries.iterator()
-                if (!iterator.hasNext()) break
-                val eldest = iterator.next()
+                val eldest = renderedPages.entries.firstOrNull { it.key !in protectedPages } ?: break
                 cachedBytes -= eldest.value.bitmap.byteCount.toLong()
                 eldest.value.bitmap.recycle()
-                iterator.remove()
+                renderedPages.remove(eldest.key)
             }
         }
 
@@ -1295,6 +1314,7 @@ class MainActivity : ComponentActivity() {
             val quality = requiredQuality()
             var firstVisible = -1
             var lastVisible = -1
+            val visibleNow = linkedSetOf<Int>()
 
             canvas.save()
             canvas.translate(offsetX, offsetY)
@@ -1304,6 +1324,7 @@ class MainActivity : ComponentActivity() {
                 if (page.top + page.displayHeight < visibleTop || page.top > visibleBottom) continue
                 if (firstVisible < 0) firstVisible = i
                 lastVisible = i
+                visibleNow.add(i)
                 val rect = android.graphics.RectF(
                     page.left, page.top,
                     page.left + page.displayWidth, page.top + page.displayHeight
@@ -1313,11 +1334,15 @@ class MainActivity : ComponentActivity() {
                 if (cached != null) {
                     canvas.drawBitmap(cached.bitmap, null, rect, bitmapPaint)
                 }
-                if (cached == null || cached.quality < quality) {
+                val pageQuality = effectivePageQuality(page, quality)
+                if (cached == null || cached.quality < pageQuality) {
                     requestPageRender(i, quality)
                 }
             }
             canvas.restore()
+            visiblePageIndices.clear()
+            visiblePageIndices.addAll(visibleNow)
+            trimBitmapCache(visiblePageIndices)
 
             // Prefetch one page above and below the viewport for smoother continuous scrolling.
             if (firstVisible >= 0) {
