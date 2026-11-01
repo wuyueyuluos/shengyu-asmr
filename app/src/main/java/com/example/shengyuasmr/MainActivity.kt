@@ -1012,10 +1012,76 @@ class MainActivity : ComponentActivity() {
             if (selectedTab == 0) {
                 tracks.forEachIndexed { i, track ->
                     val active = i == currentTrack
-                    val row = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL; background = android.graphics.drawable.GradientDrawable().apply { setColor(if (active) themeColor(0xFFF1ECF8.toInt()) else android.graphics.Color.TRANSPARENT); cornerRadius = dp(18).toFloat() } }
-                    row.addView(TextView(this).apply { text = (if (active) "▶  " else "") + "%02d".format(i + 1) + ".  " + track.name; textSize = 15f; gravity = Gravity.CENTER_VERTICAL; setPadding(dp(16), 0, dp(6), 0); setTextColor(if (active) themeColor(0xFF70558F.toInt()) else themeColor(0xFF494452.toInt())); setTypeface(typeface, if (active) android.graphics.Typeface.BOLD else android.graphics.Typeface.NORMAL); maxLines = 1; ellipsize = android.text.TextUtils.TruncateAt.MIDDLE; setOnClickListener { dialog.dismiss(); currentScreen = returnScreen; playTrack(i) } }, LinearLayout.LayoutParams(0, dp(66), 1f))
-                    row.addView(TextView(this).apply { text = "⠿"; textSize = 22f; gravity = Gravity.CENTER; setTextColor(themeColor(0xFF9487A1.toInt())); setOnLongClickListener { v -> v.startDragAndDrop(android.content.ClipData.newPlainText("track-index", i.toString()), View.DragShadowBuilder(v), i, 0); true }; setOnDragListener { _, e -> if (e.action == android.view.DragEvent.ACTION_DROP) { val from = e.localState as? Int; if (from != null && from in tracks.indices && from != i) { val moved = tracks.removeAt(from); tracks.add(i, moved); val wi = works.indexOfFirst { it.folder == folderUri }; if (wi >= 0) { works[wi] = works[wi].copy(tracks = tracks.toList()); saveWorks() }; refreshRows() } }; true } }, LinearLayout.LayoutParams(dp(42), dp(60)))
-                    list.addView(row, LinearLayout.LayoutParams(-1, dp(66)).apply { bottomMargin = dp(2) })
+                    val row = LinearLayout(this).apply {
+                        orientation = LinearLayout.HORIZONTAL
+                        gravity = Gravity.CENTER_VERTICAL
+                        setPadding(0, dp(8), 0, dp(8))
+                        minimumHeight = dp(70)
+                        background = android.graphics.drawable.GradientDrawable().apply {
+                            setColor(if (active) themeColor(0xFFF1ECF8.toInt()) else android.graphics.Color.TRANSPARENT)
+                            cornerRadius = dp(18).toFloat()
+                        }
+                    }
+                    val title = TextView(this).apply {
+                        text = (if (active) "▶  " else "") + "%02d".format(i + 1) + ".  " + track.name
+                        textSize = 15f
+                        gravity = Gravity.CENTER_VERTICAL
+                        setPadding(dp(16), dp(8), dp(6), dp(8))
+                        setTextColor(if (active) themeColor(0xFF70558F.toInt()) else themeColor(0xFF494452.toInt()))
+                        setTypeface(typeface, if (active) android.graphics.Typeface.BOLD else android.graphics.Typeface.NORMAL)
+                        // Keep the complete file name; let the row grow vertically instead of truncating it.
+                        isSingleLine = false
+                        maxLines = Int.MAX_VALUE
+                        ellipsize = null
+                        setHorizontallyScrolling(false)
+                        breakStrategy = android.text.Layout.BREAK_STRATEGY_SIMPLE
+                        hyphenationFrequency = android.text.Layout.HYPHENATION_FREQUENCY_NONE
+                        setLineSpacing(dp(2).toFloat(), 1f)
+                        setOnClickListener {
+                            dialog.dismiss()
+                            currentScreen = returnScreen
+                            playTrack(i)
+                        }
+                    }
+                    row.addView(title, LinearLayout.LayoutParams(0, -2, 1f))
+
+                    val dragHandle = TextView(this).apply {
+                        text = "⠿"
+                        textSize = 22f
+                        gravity = Gravity.CENTER
+                        setTextColor(themeColor(0xFF9487A1.toInt()))
+                        contentDescription = "长按拖动以调整音轨顺序"
+                        setOnLongClickListener { v ->
+                            v.startDragAndDrop(
+                                android.content.ClipData.newPlainText("track-index", i.toString()),
+                                View.DragShadowBuilder(v),
+                                i,
+                                0
+                            )
+                            true
+                        }
+                        setOnDragListener { _, e ->
+                            if (e.action == android.view.DragEvent.ACTION_DROP) {
+                                val from = e.localState as? Int
+                                if (from != null && from in tracks.indices && from != i) {
+                                    val moved = tracks.removeAt(from)
+                                    tracks.add(i, moved)
+                                    val wi = works.indexOfFirst { it.folder == folderUri }
+                                    if (wi >= 0) {
+                                        works[wi] = works[wi].copy(tracks = tracks.toList())
+                                        saveWorks()
+                                    }
+                                    refreshRows()
+                                }
+                            }
+                            true
+                        }
+                    }
+                    // Center the handle vertically even when a long title makes the row taller.
+                    row.addView(dragHandle, LinearLayout.LayoutParams(dp(42), dp(60)))
+                    list.addView(row, LinearLayout.LayoutParams(-1, -2).apply {
+                        bottomMargin = dp(2)
+                    })
                 }
                 if (tracks.isEmpty()) list.addView(label("这个作品没有音轨", 13, themeColor(0xFF9A8EA4.toInt())).apply { setPadding(dp(12), dp(18), 0, dp(18)) })
             } else {
