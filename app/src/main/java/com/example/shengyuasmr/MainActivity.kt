@@ -553,7 +553,6 @@ class MainActivity : ComponentActivity() {
             topMargin = dp(10)
             bottomMargin = dp(8)
         }
-        updateArtworkFrameBackground(artFrame)
         content.addView(artFrame, artLp)
         var bannerDownX = 0f
         var bannerDownY = 0f
@@ -584,104 +583,6 @@ class MainActivity : ComponentActivity() {
             }
         }
         renderBottomControls()
-    }
-
-    /**
-     * Uses the current illustration as a softly blurred backdrop only inside the artwork frame.
-     * The source is decoded at a small size to keep memory and CPU use modest on older phones.
-     */
-    private fun updateArtworkFrameBackground(frame: FrameLayout) {
-        if (!getSharedPreferences("shengyu_settings", MODE_PRIVATE).getBoolean("artwork_blur_background", true)) return
-        val uri = artworks.getOrNull(currentArt % artworks.size)
-        if (uri == null) {
-            frame.setBackgroundColor(themeColor(0xFFF0EAF5.toInt()))
-            return
-        }
-        try {
-            val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
-            contentResolver.openInputStream(uri)?.use { BitmapFactory.decodeStream(it, null, bounds) }
-            if (bounds.outWidth <= 0 || bounds.outHeight <= 0) {
-                root.setBackgroundColor(themeColor(0xFFF8F5FA.toInt()))
-                return
-            }
-
-            // Decode a small source first, then center-crop it to the screen's aspect ratio.
-            val targetW = (resources.displayMetrics.widthPixels - dp(36)).coerceAtLeast(1)
-            val targetH = dp(420)
-            val targetRatio = targetW.toFloat() / targetH.coerceAtLeast(1)
-            val sample = maxOf(1, minOf(bounds.outWidth / 360, bounds.outHeight / 640))
-            val options = BitmapFactory.Options().apply { inSampleSize = sample }
-            val decoded = contentResolver.openInputStream(uri)?.use { BitmapFactory.decodeStream(it, null, options) }
-                ?: throw IllegalStateException("Unable to decode artwork")
-
-            val sourceRatio = decoded.width.toFloat() / decoded.height.coerceAtLeast(1)
-            val cropW: Int
-            val cropH: Int
-            if (sourceRatio > targetRatio) {
-                cropH = decoded.height
-                cropW = (cropH * targetRatio).toInt().coerceIn(1, decoded.width)
-            } else {
-                cropW = decoded.width
-                cropH = (cropW / targetRatio).toInt().coerceIn(1, decoded.height)
-            }
-            val cropX = (decoded.width - cropW) / 2
-            val cropY = (decoded.height - cropH) / 2
-            val cropped = Bitmap.createBitmap(decoded, cropX, cropY, cropW, cropH)
-            if (cropped !== decoded && !decoded.isRecycled) decoded.recycle()
-
-            // Prepare a modest-size backdrop and apply a real two-pass box blur.
-            val blurW = 180
-            val blurH = maxOf(240, (blurW / targetRatio).toInt().coerceAtMost(420))
-            val small = Bitmap.createScaledBitmap(cropped, blurW, blurH, true)
-            if (small !== cropped && !cropped.isRecycled) cropped.recycle()
-            val pixels = IntArray(blurW * blurH)
-            small.getPixels(pixels, 0, blurW, 0, 0, blurW, blurH)
-            val radius = 7
-            val horizontal = IntArray(pixels.size)
-            for (y in 0 until blurH) {
-                for (x in 0 until blurW) {
-                    var rr = 0; var gg = 0; var bb = 0; var count = 0
-                    for (k in (x - radius).coerceAtLeast(0)..(x + radius).coerceAtMost(blurW - 1)) {
-                        val c = pixels[y * blurW + k]
-                        rr += android.graphics.Color.red(c)
-                        gg += android.graphics.Color.green(c)
-                        bb += android.graphics.Color.blue(c)
-                        count++
-                    }
-                    horizontal[y * blurW + x] = android.graphics.Color.rgb(rr / count, gg / count, bb / count)
-                }
-            }
-            val blurredPixels = IntArray(pixels.size)
-            for (y in 0 until blurH) {
-                for (x in 0 until blurW) {
-                    var rr = 0; var gg = 0; var bb = 0; var count = 0
-                    for (k in (y - radius).coerceAtLeast(0)..(y + radius).coerceAtMost(blurH - 1)) {
-                        val c = horizontal[k * blurW + x]
-                        rr += android.graphics.Color.red(c)
-                        gg += android.graphics.Color.green(c)
-                        bb += android.graphics.Color.blue(c)
-                        count++
-                    }
-                    blurredPixels[y * blurW + x] = android.graphics.Color.rgb(rr / count, gg / count, bb / count)
-                }
-            }
-            val blurred = Bitmap.createBitmap(blurW, blurH, Bitmap.Config.ARGB_8888)
-            blurred.setPixels(blurredPixels, 0, blurW, 0, 0, blurW, blurH)
-            if (!small.isRecycled) small.recycle()
-
-            val backdrop = android.graphics.drawable.BitmapDrawable(resources, blurred).apply {
-                gravity = Gravity.FILL
-            }
-            // A subtle dark veil deepens the backdrop without dimming foreground controls.
-            val veil = android.graphics.drawable.ColorDrawable(android.graphics.Color.argb(38, 0, 0, 0))
-            val shade = android.graphics.drawable.GradientDrawable(
-                android.graphics.drawable.GradientDrawable.Orientation.TOP_BOTTOM,
-                intArrayOf(themeColor(0x24F8F5FA.toInt()), themeColor(0x14F8F5FA.toInt()), themeColor(0x99241C30.toInt()))
-            )
-            frame.background = android.graphics.drawable.LayerDrawable(arrayOf(backdrop, veil, shade))
-        } catch (_: Exception) {
-            root.setBackgroundColor(themeColor(0xFFF8F5FA.toInt()))
-        }
     }
 
     private fun artworkTint(bitmap: Bitmap): Int {
@@ -784,7 +685,11 @@ class MainActivity : ComponentActivity() {
                 val add = button("+").apply {
                     visibility = if (editing) View.VISIBLE else View.GONE
                     setOnClickListener {
-                        val input = EditText(this@MainActivity).apply { hint = "输入新的${group}标签"; setSingleLine(true) }
+                        val input = EditText(this@MainActivity).apply {
+                            hint = "输入新的${group}标签"
+                            setSingleLine(true)
+                            backgroundTintList = android.content.res.ColorStateList.valueOf(themeColor(0xFF9A82B3.toInt()))
+                        }
                         android.app.AlertDialog.Builder(this@MainActivity).setTitle("新增${group}标签").setView(input)
                             .setPositiveButton("添加") { _, _ ->
                                 val value = input.text.toString().trim()
@@ -1884,7 +1789,7 @@ class MainActivity : ComponentActivity() {
     private fun showSettings() {
         android.app.AlertDialog.Builder(this)
             .setTitle("设置")
-            .setItems(arrayOf("常规", "播放设置", "外观", "关于")) { _, which ->
+            .setItems(arrayOf("常规", "播放", "外观", "关于")) { _, which ->
                 when (which) {
                     0 -> showGeneralSettings()
                     1 -> showPlaybackSettings()
@@ -1990,7 +1895,7 @@ class MainActivity : ComponentActivity() {
                 .showStyled()
         }
         android.app.AlertDialog.Builder(this)
-            .setTitle("播放设置")
+            .setTitle("播放")
             .setItems(arrayOf(
                 "回退按键：${prefs.getInt("seek_back_seconds", 15)} 秒",
                 "前进按键：${prefs.getInt("seek_forward_seconds", 15)} 秒"
@@ -2055,20 +1960,6 @@ class MainActivity : ComponentActivity() {
             gravity = Gravity.CENTER
             setPadding(0, dp(2), 0, dp(12))
         })
-
-        val useBlur = prefs.getBoolean("artwork_blur_background", true)
-        val blurSwitch = CheckBox(this).apply {
-            text = "插画动态模糊背景"
-            textSize = 14f
-            setTextColor(themeColor(0xFF51435F.toInt()))
-            isChecked = useBlur
-            buttonTintList = android.content.res.ColorStateList.valueOf(themeColor(0xFF9A82B3.toInt()))
-            setOnCheckedChangeListener { _, checked ->
-                prefs.edit().putBoolean("artwork_blur_background", checked).apply()
-                refreshThemeScreen()
-            }
-        }
-        panel.addView(blurSwitch)
 
         appearanceDialog = android.app.AlertDialog.Builder(this)
             .setTitle("外观")
