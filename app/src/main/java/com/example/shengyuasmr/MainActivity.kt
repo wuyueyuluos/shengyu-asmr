@@ -1686,8 +1686,8 @@ class MainActivity : ComponentActivity() {
                 setOnClickListener {
                     gridVisible = false
                     frame.removeView(gridPage)
-                    frame.removeView(header)
-                    frame.removeView(this)
+                    frame.removeViewAt(frame.childCount - 1) // remove the grid header
+                    frame.removeViewAt(frame.childCount - 1) // remove the close button
                     viewer.visibility = View.VISIBLE
                 }
             }
