@@ -549,7 +549,12 @@ class MainActivity : ComponentActivity() {
                         val saved = readPlaybackMemory(work.folder)
                         currentTrack = saved.first
                         showScript = false
-                        if (currentTrack in tracks.indices) playTrack(currentTrack, saved.second) else renderHome()
+                        if (currentTrack in tracks.indices) {
+                            // Opening a saved work from the library is an explicit navigation action.
+                            // Set the destination before playTrack refreshes the UI, preserving one-tap entry.
+                            currentScreen = "home"
+                            playTrack(currentTrack, saved.second)
+                        } else renderHome()
                     } else { showScript = false; renderHome() }
                 }
                 val lp = LinearLayout.LayoutParams(-1, dp(112)).apply { topMargin = dp(9); marginStart = dp(2); marginEnd = dp(2) }
