@@ -1884,7 +1884,7 @@ class MainActivity : ComponentActivity() {
     private fun showSettings() {
         android.app.AlertDialog.Builder(this)
             .setTitle("设置")
-            .setItems(arrayOf("常规", "播放设置", "外观", "关于")) { _, which ->
+            .setItems(arrayOf("常规", "播放", "外观", "关于")) { _, which ->
                 when (which) {
                     0 -> showGeneralSettings()
                     1 -> showPlaybackSettings()
@@ -2055,20 +2055,6 @@ class MainActivity : ComponentActivity() {
             gravity = Gravity.CENTER
             setPadding(0, dp(2), 0, dp(12))
         })
-
-        val useBlur = prefs.getBoolean("artwork_blur_background", true)
-        val blurSwitch = CheckBox(this).apply {
-            text = "插画动态模糊背景"
-            textSize = 14f
-            setTextColor(themeColor(0xFF51435F.toInt()))
-            isChecked = useBlur
-            buttonTintList = android.content.res.ColorStateList.valueOf(themeColor(0xFF9A82B3.toInt()))
-            setOnCheckedChangeListener { _, checked ->
-                prefs.edit().putBoolean("artwork_blur_background", checked).apply()
-                refreshThemeScreen()
-            }
-        }
-        panel.addView(blurSwitch)
 
         appearanceDialog = android.app.AlertDialog.Builder(this)
             .setTitle("外观")
