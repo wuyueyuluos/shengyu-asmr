@@ -2585,8 +2585,7 @@ class MainActivity : ComponentActivity() {
                     }
                 }
             }
-            val titleView = dialog.findViewById<TextView>(android.R.id.alertTitle)
-                ?: dialog.findViewById(android.R.id.title)
+            val titleView = dialog.findViewById<TextView>(android.R.id.title)
             titleView?.setTextColor(if (isNightMode()) 0xFFE8E2EF.toInt() else themeColor(0xFF51435F.toInt()))
             val titleContainer = titleView?.parent as? android.view.ViewGroup
             val topPanel = titleContainer?.parent as? android.view.ViewGroup
