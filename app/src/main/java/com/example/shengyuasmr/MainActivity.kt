@@ -1895,7 +1895,7 @@ class MainActivity : ComponentActivity() {
                 .showStyled()
         }
         android.app.AlertDialog.Builder(this)
-            .setTitle("播放设置")
+            .setTitle("播放")
             .setItems(arrayOf(
                 "回退按键：${prefs.getInt("seek_back_seconds", 15)} 秒",
                 "前进按键：${prefs.getInt("seek_forward_seconds", 15)} 秒"
