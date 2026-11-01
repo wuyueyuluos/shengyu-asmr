@@ -68,7 +68,13 @@ class MainActivity : ComponentActivity() {
     private val ACTION_MEDIA_PREVIOUS = "com.example.shengyuasmr.MEDIA_PREVIOUS"
     private val ACTION_MEDIA_TOGGLE = "com.example.shengyuasmr.MEDIA_TOGGLE"
     private val ACTION_MEDIA_NEXT = "com.example.shengyuasmr.MEDIA_NEXT"
+    // Actual playback may differ from the work currently being browsed.
     private var currentTrack = -1
+    private var playbackTracks: List<LocalTrack> = emptyList()
+    private var playbackFolderUri: Uri? = null
+    private var playbackFolderName: String = ""
+    private var playbackArtworks: List<Uri> = emptyList()
+    private var playbackTrackIndex = -1
     private var currentArt = 0
     private var showScript = false
     private var currentFolderName = "还没有导入作品"
@@ -344,16 +350,16 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun updateMediaMetadata() {
-        val track = tracks.getOrNull(currentTrack) ?: return
+        val track = playbackTracks.getOrNull(playbackTrackIndex) ?: return
         val bitmap = try {
-            val uri = artworks.getOrNull(currentArt) ?: works.firstOrNull { it.folder == folderUri }?.cover
+            val uri = playbackArtworks.getOrNull(currentArt) ?: works.firstOrNull { it.folder == playbackFolderUri }?.cover
             uri?.let { contentResolver.openInputStream(it)?.use { stream -> BitmapFactory.decodeStream(stream) } }
         } catch (_: Exception) { null }
         val builder = MediaMetadataCompat.Builder()
-            .putString(MediaMetadataCompat.METADATA_KEY_TITLE, currentFolderName)
+            .putString(MediaMetadataCompat.METADATA_KEY_TITLE, playbackFolderName)
             .putString(MediaMetadataCompat.METADATA_KEY_ARTIST, track.name.substringBeforeLast('.'))
-            .putString(MediaMetadataCompat.METADATA_KEY_ALBUM, currentFolderName)
-            .putString(MediaMetadataCompat.METADATA_KEY_DISPLAY_TITLE, currentFolderName)
+            .putString(MediaMetadataCompat.METADATA_KEY_ALBUM, playbackFolderName)
+            .putString(MediaMetadataCompat.METADATA_KEY_DISPLAY_TITLE, playbackFolderName)
             .putString(MediaMetadataCompat.METADATA_KEY_DISPLAY_SUBTITLE, track.name.substringBeforeLast('.'))
             .putLong(MediaMetadataCompat.METADATA_KEY_DURATION, try { player?.duration?.toLong() ?: 0L } catch (_: Exception) { 0L })
         if (bitmap != null) { builder.putBitmap(MediaMetadataCompat.METADATA_KEY_ART, bitmap); builder.putBitmap(MediaMetadataCompat.METADATA_KEY_ALBUM_ART, bitmap); builder.putBitmap(MediaMetadataCompat.METADATA_KEY_DISPLAY_ICON, bitmap) }
@@ -395,7 +401,7 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun updateMediaNotification() {
-        val track = tracks.getOrNull(currentTrack) ?: return
+        val track = playbackTracks.getOrNull(playbackTrackIndex) ?: return
         val playing = try { player?.isPlaying == true } catch (_: Exception) { false }
         updateMediaMetadata()
         updateMediaPlaybackState(playing)
@@ -404,12 +410,12 @@ class MainActivity : ComponentActivity() {
         }, PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
         val builder = NotificationCompat.Builder(this, mediaChannelId)
             .setSmallIcon(android.R.drawable.ic_media_play)
-            .setContentTitle(currentFolderName)
+            .setContentTitle(playbackFolderName)
             .setContentText(track.name.substringBeforeLast('.'))
             .setContentIntent(openApp)
             .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
             .setOnlyAlertOnce(true)
-            .setLargeIcon(try { val uri = artworks.getOrNull(currentArt) ?: works.firstOrNull { it.folder == folderUri }?.cover; uri?.let { contentResolver.openInputStream(it)?.use { stream -> BitmapFactory.decodeStream(stream) } } } catch (_: Exception) { null })
+            .setLargeIcon(try { val uri = playbackArtworks.getOrNull(currentArt) ?: works.firstOrNull { it.folder == playbackFolderUri }?.cover; uri?.let { contentResolver.openInputStream(it)?.use { stream -> BitmapFactory.decodeStream(stream) } } } catch (_: Exception) { null })
             .setOngoing(playing)
             .setShowWhen(false)
             .addAction(android.R.drawable.ic_media_previous, "上一首", mediaButtonPendingIntent(ACTION_MEDIA_PREVIOUS, 7303))
@@ -1287,24 +1293,52 @@ class MainActivity : ComponentActivity() {
         dialog.window?.setBackgroundDrawableResource(android.R.color.transparent); dialog.window?.setLayout(-1, (resources.displayMetrics.heightPixels * 0.68f).toInt()); dialog.window?.setGravity(Gravity.BOTTOM); dialog.window?.setDimAmount(0.28f)
     }
 
-    private fun playTrack(index: Int, startAt: Int = 0) {
-        if (index !in tracks.indices) return
+    private fun playTrack(
+        index: Int,
+        startAt: Int = 0,
+        trackSource: List<LocalTrack> = tracks.toList(),
+        workFolder: Uri? = folderUri,
+        workName: String = currentFolderName,
+        workArts: List<Uri> = artworks.toList(),
+        updateSelection: Boolean = true,
+        updateUi: Boolean = true
+    ) {
+        if (index !in trackSource.indices) return
+        val queue = trackSource.toList()
+        val artSnapshot = workArts.toList()
         try {
             player?.release()
+            playbackTracks = queue
+            playbackFolderUri = workFolder
+            playbackFolderName = workName
+            playbackArtworks = artSnapshot
+            playbackTrackIndex = index
             player = MediaPlayer().apply {
-                setDataSource(this@MainActivity, tracks[index].uri)
-                setOnCompletionListener { if (index < tracks.lastIndex) playTrack(index + 1) else { updateMediaPlaybackState(false); updateMediaNotification() } }
+                setDataSource(this@MainActivity, queue[index].uri)
+                setOnCompletionListener {
+                    if (index < queue.lastIndex) {
+                        val sameWorkIsVisible = folderUri == workFolder &&
+                            (currentScreen == "home" || currentScreen == "script" || currentScreen == "tracklist")
+                        playTrack(index + 1, trackSource = queue, workFolder = workFolder, workName = workName, workArts = artSnapshot, updateSelection = sameWorkIsVisible, updateUi = sameWorkIsVisible)
+                    } else {
+                        updateMediaPlaybackState(false)
+                        updateMediaNotification()
+                    }
+                }
                 prepare()
                 if (startAt > 0) seekTo(startAt.coerceAtMost(duration))
                 start()
             }
-            currentTrack = index
+            if (updateSelection) currentTrack = index
             resumePosition = startAt.coerceAtLeast(0)
             savePlaybackMemory()
             updateMediaMetadata()
             updateMediaPlaybackState(true)
             updateMediaNotification()
-            if (showScript) loadScript() else renderHome()
+            if (updateUi) {
+                if (showScript && currentScreen == "script") loadScript()
+                else if (currentScreen == "home" || currentScreen == "tracklist") renderHome()
+            }
         } catch (e: Exception) {
             Toast.makeText(this, "无法播放此音频格式：${e.message ?: ""}", Toast.LENGTH_LONG).show()
         }
@@ -1783,8 +1817,8 @@ class MainActivity : ComponentActivity() {
     private fun playbackMemoryKey(uri: Uri) = "playback_${uri.toString().hashCode()}"
 
     private fun savePlaybackMemory() {
-        val uri = folderUri ?: return
-        val index = currentTrack
+        val uri = playbackFolderUri ?: return
+        val index = playbackTrackIndex
         if (index < 0) return
         val position = try { player?.currentPosition ?: resumePosition } catch (_: Exception) { resumePosition }
         val key = playbackMemoryKey(uri)
@@ -2551,8 +2585,9 @@ class MainActivity : ComponentActivity() {
                     }
                 }
             }
-            val titleView = dialog.findViewById<TextView>(android.R.id.title)
-            titleView?.setTextColor(themeColor(0xFF51435F.toInt()))
+            val titleView = dialog.findViewById<TextView>(android.R.id.alertTitle)
+                ?: dialog.findViewById(android.R.id.title)
+            titleView?.setTextColor(if (isNightMode()) 0xFFE8E2EF.toInt() else themeColor(0xFF51435F.toInt()))
             val titleContainer = titleView?.parent as? android.view.ViewGroup
             val topPanel = titleContainer?.parent as? android.view.ViewGroup
             if (titleContainer != null && topPanel != null && titleContainer.parent === topPanel) {
