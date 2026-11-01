@@ -46,6 +46,9 @@ jobs:
               -dname "CN=Android Debug,O=Android,C=US"
           fi
 
+      - name: Install launcher icon resources
+        run: unzip -o shengyu_asmr_icon_resources.zip -d app/src/main/res
+
       - name: Build APK
         run: gradle assembleDebug
 
