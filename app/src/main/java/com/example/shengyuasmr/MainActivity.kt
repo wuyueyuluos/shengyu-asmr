@@ -958,11 +958,37 @@ class MainActivity : ComponentActivity() {
             }.setNegativeButton("取消", null).showStyled()
     }
 
+    private fun folderIdentity(uri: Uri): String {
+        return try {
+            val id = if (uri.pathSegments.contains("document")) DocumentsContract.getDocumentId(uri) else DocumentsContract.getTreeDocumentId(uri)
+            "${uri.authority}:$id"
+        } catch (_: Exception) { uri.toString() }
+    }
+
+    private fun findFolderInTree(rootUri: Uri, targetUri: Uri): DocumentFile? {
+        val root = DocumentFile.fromTreeUri(this, rootUri) ?: return null
+        val target = folderIdentity(targetUri)
+        fun find(dir: DocumentFile): DocumentFile? {
+            if (folderIdentity(dir.uri) == target) return dir
+            if (!dir.isDirectory) return null
+            for (child in dir.listFiles()) {
+                if (child.isDirectory) {
+                    val match = find(child)
+                    if (match != null) return match
+                }
+            }
+            return null
+        }
+        return find(root)
+    }
+
     private fun scanFolder(uri: Uri) {
         saveLibraryScrollPosition()
         libraryScrollY = getSharedPreferences("shengyu_playback", MODE_PRIVATE).getLong("library_scroll_y", libraryScrollY.toLong()).toInt().coerceAtLeast(0)
         tracks.clear(); artworks.clear(); scripts.clear()
-        val folder = DocumentFile.fromTreeUri(this, uri)
+        val savedRoot = getSharedPreferences("shengyu_settings", MODE_PRIVATE).getString("library_root_uri", null)?.let { Uri.parse(it) }
+        val folder = (if (savedRoot != null) findFolderInTree(savedRoot, uri) else null)
+            ?: DocumentFile.fromTreeUri(this, uri)
         currentFolderName = folder?.name ?: "已选文件夹"
         fun walk(dir: DocumentFile) {
             dir.listFiles().forEach { f ->
@@ -1011,10 +1037,10 @@ class MainActivity : ComponentActivity() {
                     Toast.makeText(this@MainActivity, "没有获取到文件夹，请重新选择。", Toast.LENGTH_SHORT).show()
                     return@setOnClickListener
                 }
-                val previous = works.firstOrNull { it.folder.toString() == targetFolder.toString() }
+                val previous = works.firstOrNull { folderIdentity(it.folder) == folderIdentity(targetFolder) }
                 val work = LocalWork(currentFolderName, targetFolder, chosenTracks, chosenArts, chosenScripts,
                     previous?.cover ?: chosenArts.firstOrNull(), previous?.cv ?: "", previous?.circle ?: "", previous?.tags ?: emptyList(), previous?.favorite ?: false, previous?.importedAt ?: System.currentTimeMillis())
-                val existing = works.indexOfFirst { it.folder.toString() == targetFolder.toString() }
+                val existing = works.indexOfFirst { folderIdentity(it.folder) == folderIdentity(targetFolder) }
                 if (existing >= 0) works[existing] = work else works.add(work)
                 saveWorks()
                 scanningFolder = null
@@ -1869,18 +1895,28 @@ class MainActivity : ComponentActivity() {
             walk(folder); return ScannedWork(folder, ts, arts, scripts)
         }
         val discovered = root.listFiles().filter { it.isDirectory }.map { collect(it) }.filter { it.tracks.isNotEmpty() }
-        fun existing(item: ScannedWork) = works.firstOrNull { it.folder.toString() == item.folder.uri.toString() }
-        fun changed(item: ScannedWork): Boolean { val old = existing(item) ?: return false
-            return old.tracks.map { it.uri.toString() }.toSet() != item.tracks.map { it.uri.toString() }.toSet() || old.arts.map { it.toString() }.toSet() != item.arts.map { it.toString() }.toSet() || old.scripts.map { it.toString() }.toSet() != item.scripts.map { it.toString() }.toSet()
+        fun existing(item: ScannedWork) = works.firstOrNull { folderIdentity(it.folder) == folderIdentity(item.folder.uri) }
+        fun mediaSignature(uri: Uri): String {
+            val file = DocumentFile.fromSingleUri(this, uri)
+            val id = try { DocumentsContract.getDocumentId(uri) } catch (_: Exception) { uri.lastPathSegment ?: uri.toString() }
+            return "$id|${file?.name ?: ""}|${file?.length() ?: -1L}|${file?.lastModified() ?: -1L}"
         }
-        fun import(item: ScannedWork) { val old = existing(item); val index = works.indexOfFirst { it.folder.toString() == item.folder.uri.toString() }
+        fun changed(item: ScannedWork): Boolean {
+            val old = existing(item) ?: return false
+            return old.tracks.map { mediaSignature(it.uri) }.sorted() != item.tracks.map { mediaSignature(it.uri) }.sorted() ||
+                old.arts.map { mediaSignature(it) }.sorted() != item.arts.map { mediaSignature(it) }.sorted() ||
+                old.scripts.map { mediaSignature(it) }.sorted() != item.scripts.map { mediaSignature(it) }.sorted()
+        }
+        fun importScannedWork(item: ScannedWork) {
+            val old = existing(item)
+            val index = works.indexOfFirst { folderIdentity(it.folder) == folderIdentity(item.folder.uri) }
             val w = LocalWork(item.folder.name ?: "未命名作品", item.folder.uri, item.tracks, item.arts, item.scripts, old?.cover ?: item.arts.firstOrNull(), old?.cv ?: "", old?.circle ?: "", old?.tags ?: emptyList(), old?.favorite ?: false, old?.importedAt ?: System.currentTimeMillis())
             if (index >= 0) works[index] = w else works.add(w)
         }
         val newItems = discovered.filter { existing(it) == null }; val changedItems = discovered.filter { changed(it) }
         val prefs = getSharedPreferences("shengyu_settings", MODE_PRIVATE)
         if ((prefs.getString("library_import_mode", "manual") ?: "manual") == "auto") {
-            (newItems + changedItems).forEach { import(it) }; saveWorks()
+            (newItems + changedItems).forEach { importScannedWork(it) }; saveWorks()
             Toast.makeText(this, "扫描完成：新增 ${newItems.size} 部，更新 ${changedItems.size} 部", Toast.LENGTH_LONG).show(); renderLibrary(); return
         }
         val panel = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setPadding(dp(18), dp(8), dp(18), dp(8)) }
@@ -1893,7 +1929,7 @@ class MainActivity : ComponentActivity() {
         }
         scroll.addView(list); panel.addView(scroll, LinearLayout.LayoutParams(-1, dp(350)))
         android.app.AlertDialog.Builder(this).setTitle("扫描作品库").setView(panel)
-            .setPositiveButton("导入所选") { _, _ -> rows.filter { it.first.isChecked }.forEach { import(it.second) }; saveWorks(); renderLibrary(); Toast.makeText(this, "作品库已更新", Toast.LENGTH_SHORT).show() }
+            .setPositiveButton("导入所选") { _, _ -> rows.filter { it.first.isChecked }.forEach { importScannedWork(it.second) }; saveWorks(); renderLibrary(); Toast.makeText(this, "作品库已更新", Toast.LENGTH_SHORT).show() }
             .setNegativeButton("取消", null).showStyled()
     }
     private fun showPlaybackSettings() {
