@@ -1953,7 +1953,13 @@ class MainActivity : ComponentActivity() {
         val mode = prefs.getString("library_import_mode", "manual") ?: "manual"
         val rootName = root?.let { DocumentFile.fromTreeUri(this, it)?.name } ?: "尚未设置"
         android.app.AlertDialog.Builder(this).setTitle("常规")
-            .setItems(arrayOf("作品库目录：$rootName", "导入方式：${if (mode == "auto") "自动导入新作品" else "扫描后手动选择"}", "扫描作品库")) { dialog, which ->
+            .setItems(arrayOf(
+                "作品库目录：$rootName",
+                "导入方式：${if (mode == "auto") "自动导入新作品" else "扫描后手动选择"}",
+                "扫描作品库",
+                "导出标签",
+                "导入标签"
+            )) { dialog, which ->
                 when (which) {
                     0 -> { dialog.dismiss(); pickingLibraryRoot = true; pickFolder.launch(root) }
                     1 -> {
@@ -1964,6 +1970,8 @@ class MainActivity : ComponentActivity() {
                             }.setNegativeButton("返回", null).showStyled()
                     }
                     2 -> { dialog.dismiss(); if (root == null) { pickingLibraryRoot = true; pickFolder.launch(null) } else scanLibraryRoot(root) }
+                    3 -> { dialog.dismiss(); exportTagFile.launch("shengyu-tags.json") }
+                    4 -> { dialog.dismiss(); importTagFile.launch(arrayOf("application/json", "text/json", "text/plain")) }
                 }
             }.setNegativeButton("关闭", null).showStyled()
     }
