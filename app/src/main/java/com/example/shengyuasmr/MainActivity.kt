@@ -115,12 +115,20 @@ class MainActivity : ComponentActivity() {
     private var durationLabel: TextView? = null
     private var resumePosition = 0
     private var folderUri: Uri? = null
+    private var pickingLibraryRoot = false
     private val pickFolder = registerForActivityResult(ActivityResultContracts.OpenDocumentTree()) { uri ->
         if (uri != null) {
-            contentResolver.takePersistableUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION)
-            folderUri = uri
-            getSharedPreferences("shengyu_settings", MODE_PRIVATE).edit().putString("library_root_uri", uri.toString()).apply()
-            scanFolder(uri)
+            try { contentResolver.takePersistableUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION) } catch (_: SecurityException) { }
+            if (pickingLibraryRoot) {
+                getSharedPreferences("shengyu_settings", MODE_PRIVATE).edit().putString("library_root_uri", uri.toString()).apply()
+                pickingLibraryRoot = false
+                showGeneralSettings()
+            } else {
+                folderUri = uri
+                scanFolder(uri)
+            }
+        } else {
+            pickingLibraryRoot = false
         }
     }
 
@@ -1829,7 +1837,7 @@ class MainActivity : ComponentActivity() {
         android.app.AlertDialog.Builder(this).setTitle("常规")
             .setItems(arrayOf("作品库目录：$rootName", "导入方式：${if (mode == "auto") "自动导入新作品" else "扫描后手动选择"}", "扫描作品库")) { dialog, which ->
                 when (which) {
-                    0 -> { dialog.dismiss(); pickFolder.launch(root) }
+                    0 -> { dialog.dismiss(); pickingLibraryRoot = true; pickFolder.launch(root) }
                     1 -> {
                         android.app.AlertDialog.Builder(this).setTitle("导入方式")
                             .setSingleChoiceItems(arrayOf("自动导入新作品", "扫描后手动选择"), if (mode == "auto") 0 else 1) { d, selected ->
@@ -1837,7 +1845,7 @@ class MainActivity : ComponentActivity() {
                                 d.dismiss(); showGeneralSettings()
                             }.setNegativeButton("返回", null).showStyled()
                     }
-                    2 -> { dialog.dismiss(); if (root == null) pickFolder.launch(null) else scanLibraryRoot(root) }
+                    2 -> { dialog.dismiss(); if (root == null) { pickingLibraryRoot = true; pickFolder.launch(null) } else scanLibraryRoot(root) }
                 }
             }.setNegativeButton("关闭", null).showStyled()
     }
