@@ -163,11 +163,51 @@ class MainActivity : ComponentActivity() {
         renderLibrary()
     }
 
+    private data class ThemeOption(val id: String, val name: String, val hue: Float)
+
+    private val themeOptions = listOf(
+        ThemeOption("lavender", "薰衣草紫", 270f),
+        ThemeOption("sakura", "樱花粉", 340f),
+        ThemeOption("sky", "天空蓝", 205f),
+        ThemeOption("mint", "薄荷绿", 158f),
+        ThemeOption("matcha", "抹茶绿", 105f),
+        ThemeOption("apricot", "奶油杏", 30f)
+    )
+
+    private fun selectedThemeId(): String {
+        val saved = getSharedPreferences("shengyu_settings", MODE_PRIVATE)
+            .getString("app_theme", "lavender") ?: "lavender"
+        return if (themeOptions.any { it.id == saved }) saved else "lavender"
+    }
+
+    private fun themeColor(color: Int): Int = themeColorFor(color, selectedThemeId())
+
+    private fun themeColorFor(color: Int, themeId: String): Int {
+        if (themeId == "lavender") return color
+        val option = themeOptions.firstOrNull { it.id == themeId } ?: return color
+        val hsv = FloatArray(3)
+        android.graphics.Color.colorToHSV(color, hsv)
+        // Keep pure neutrals and the dark image-preview surfaces unchanged.
+        if (hsv[1] < 0.008f || hsv[2] < 0.28f) return color
+        if (hsv[0] < 220f || hsv[0] > 330f) return color
+        val shift = ((option.hue - 270f + 540f) % 360f) - 180f
+        hsv[0] = (hsv[0] + shift + 360f) % 360f
+        return android.graphics.Color.HSVToColor(android.graphics.Color.alpha(color), hsv)
+    }
+
+    private fun refreshThemeScreen() {
+        when (currentScreen) {
+            "script" -> loadScript()
+            "home", "tracklist" -> renderHome()
+            "library" -> renderLibrary()
+        }
+    }
+
     private fun buildShell() {
         root = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             setPadding(dp(18), dp(2), dp(18), dp(8))
-            setBackgroundColor(0xFFF8F5FA.toInt())
+            setBackgroundColor(themeColor(0xFFF8F5FA.toInt()))
         }
         content = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
         root.addView(content, LinearLayout.LayoutParams(-1, 0, 1f))
@@ -293,7 +333,7 @@ class MainActivity : ComponentActivity() {
 
     private fun renderLibrary() {
         saveLibraryScrollPosition()
-        root.setBackgroundColor(0xFFF8F5FA.toInt())
+        root.setBackgroundColor(themeColor(0xFFF8F5FA.toInt()))
         currentScreen = "library"
         content.removeAllViews()
         val brand = LinearLayout(this).apply {
@@ -302,8 +342,8 @@ class MainActivity : ComponentActivity() {
             setPadding(dp(2), dp(4), dp(2), dp(12))
         }
         val brandText = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
-        brandText.addView(label("声屿", 27, 0xFF51435F.toInt(), true))
-        brandText.addView(label("SHENGYU  ·  ASMR LIBRARY", 9, 0xFFA095AA.toInt(), true))
+        brandText.addView(label("声屿", 27, themeColor(0xFF51435F.toInt()), true))
+        brandText.addView(label("SHENGYU  ·  ASMR LIBRARY", 9, themeColor(0xFFA095AA.toInt()), true))
         brand.addView(brandText, LinearLayout.LayoutParams(0, -2, 1f))
         fun addHeaderIcon(glyph: String, description: String, action: () -> Unit, longAction: (() -> Unit)? = null) {
             val icon = TextView(this).apply {
@@ -311,9 +351,9 @@ class MainActivity : ComponentActivity() {
                 textSize = 23f
                 gravity = Gravity.CENTER
                 contentDescription = description
-                setTextColor(0xFF756681.toInt())
+                setTextColor(themeColor(0xFF756681.toInt()))
                 background = android.graphics.drawable.GradientDrawable().apply {
-                    setColor(0x00FFFFFF)
+                    setColor(themeColor(0x00FFFFFF.toInt()))
                     cornerRadius = dp(14).toFloat()
                 }
                 setOnClickListener { action() }
@@ -327,19 +367,19 @@ class MainActivity : ComponentActivity() {
         val heading = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL
             setPadding(dp(14), dp(10), dp(14), dp(10))
-            background = android.graphics.drawable.GradientDrawable().apply { setColor(0xFFEDE5F2.toInt()); cornerRadius = dp(14).toFloat() }
+            background = android.graphics.drawable.GradientDrawable().apply { setColor(themeColor(0xFFEDE5F2.toInt())); cornerRadius = dp(14).toFloat() }
             setOnClickListener { showLibrarySections() }
         }
-        heading.addView(label(libraryFilter + "  ▾", 16, 0xFF51435F.toInt(), true))
+        heading.addView(label(libraryFilter + "  ▾", 16, themeColor(0xFF51435F.toInt()), true))
         heading.addView(View(this), LinearLayout.LayoutParams(0, 1, 1f))
-        heading.addView(label(filteredWorks().size.toString() + " 部作品", 12, 0xFF91869B.toInt()))
+        heading.addView(label(filteredWorks().size.toString() + " 部作品", 12, themeColor(0xFF91869B.toInt())))
         content.addView(heading, LinearLayout.LayoutParams(-1, dp(48)))
         if (works.isEmpty()) {
             val empty = TextView(this).apply {
                 text = "♫\n\n声屿还在等你的第一份声音。"
                 textSize = 18f
                 gravity = Gravity.CENTER
-                setTextColor(0xFF8A8192.toInt())
+                setTextColor(themeColor(0xFF8A8192.toInt()))
             }
             content.addView(empty, LinearLayout.LayoutParams(-1, 0, 1f))
         } else {
@@ -359,12 +399,12 @@ class MainActivity : ComponentActivity() {
                     orientation = LinearLayout.HORIZONTAL
                     gravity = Gravity.CENTER_VERTICAL
                     setPadding(dp(9), dp(9), dp(6), dp(9))
-                    background = android.graphics.drawable.GradientDrawable().apply { setColor(0xFFFAF8FC.toInt()); cornerRadius = dp(18).toFloat(); setStroke(dp(1), 0xFFEAE3F0.toInt()) }
+                    background = android.graphics.drawable.GradientDrawable().apply { setColor(themeColor(0xFFFAF8FC.toInt())); cornerRadius = dp(18).toFloat(); setStroke(dp(1), themeColor(0xFFEAE3F0.toInt())) }
                     elevation = dp(2).toFloat()
                 }
                 val coverView = ImageView(this).apply {
                     scaleType = ImageView.ScaleType.CENTER_CROP
-                    background = android.graphics.drawable.GradientDrawable().apply { setColor(0xFFEAE3F0.toInt()); cornerRadius = dp(13).toFloat() }
+                    background = android.graphics.drawable.GradientDrawable().apply { setColor(themeColor(0xFFEAE3F0.toInt())); cornerRadius = dp(13).toFloat() }
                     clipToOutline = true
                     val coverUri = work.cover ?: work.arts.firstOrNull()
                     if (coverUri != null) try { setImageBitmap(decodeLibraryThumbnail(coverUri)) } catch (_: Exception) {}
@@ -375,23 +415,23 @@ class MainActivity : ComponentActivity() {
                 info.addView(TextView(this).apply {
                     text = work.title
                     textSize = 15f
-                    setTextColor(0xFF45394F.toInt())
+                    setTextColor(themeColor(0xFF45394F.toInt()))
                     setTypeface(typeface, android.graphics.Typeface.BOLD)
                     maxLines = 2
                     setLineSpacing(dp(2).toFloat(), 1.02f)
                     ellipsize = android.text.TextUtils.TruncateAt.END
                 })
-                info.addView(label("${work.tracks.size} 音轨  ·  ${work.arts.size} 插画  ·  ${work.scripts.size} 台本", 10, 0xFF91869B.toInt()).apply { setPadding(0, dp(5), 0, 0) })
+                info.addView(label("${work.tracks.size} 音轨  ·  ${work.arts.size} 插画  ·  ${work.scripts.size} 台本", 10, themeColor(0xFF91869B.toInt())).apply { setPadding(0, dp(5), 0, 0) })
                 val categoryLine = listOf(work.cv, work.circle).filter { it.isNotBlank() }.joinToString("  ·  ")
-                if (categoryLine.isNotBlank()) info.addView(label(categoryLine, 10, 0xFF9A8EA4.toInt()).apply { maxLines = 1; ellipsize = android.text.TextUtils.TruncateAt.END; setPadding(0, dp(3), 0, 0) })
+                if (categoryLine.isNotBlank()) info.addView(label(categoryLine, 10, themeColor(0xFF9A8EA4.toInt())).apply { maxLines = 1; ellipsize = android.text.TextUtils.TruncateAt.END; setPadding(0, dp(3), 0, 0) })
                 row.addView(info, LinearLayout.LayoutParams(0, dp(94), 1f))
                 row.addView(TextView(this).apply {
                     text = "⋮"
                     textSize = 25f
                     gravity = Gravity.CENTER
-                    setTextColor(0xFF82738F.toInt())
+                    setTextColor(themeColor(0xFF82738F.toInt()))
                     setPadding(dp(3), 0, dp(3), 0)
-                    background = android.graphics.drawable.GradientDrawable().apply { setColor(0xFFF2EDF6.toInt()); cornerRadius = dp(12).toFloat() }
+                    background = android.graphics.drawable.GradientDrawable().apply { setColor(themeColor(0xFFF2EDF6.toInt())); cornerRadius = dp(12).toFloat() }
                     setOnClickListener { saveLibraryScrollPosition(); showWorkMenu(work) }
                 }, LinearLayout.LayoutParams(dp(28), dp(94)))
                 row.setOnClickListener {
@@ -433,21 +473,21 @@ class MainActivity : ComponentActivity() {
 
     private fun renderHome() {
         saveScriptScrollPosition()
-        root.setBackgroundColor(0xFFF8F5FA.toInt())
+        root.setBackgroundColor(themeColor(0xFFF8F5FA.toInt()))
         currentScreen = "home"
         content.removeAllViews()
         val heading = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             setPadding(dp(14), dp(12), dp(14), dp(10))
             background = android.graphics.drawable.GradientDrawable().apply {
-                setColor(android.graphics.Color.argb(224, 231, 222, 235))
+                setColor(themeColor(android.graphics.Color.argb(224, 231, 222, 235)))
                 cornerRadius = dp(18).toFloat()
                 setStroke(dp(1), android.graphics.Color.argb(105, 255, 255, 255))
             }
             elevation = dp(2).toFloat()
         }
-        heading.addView(label("NOW PLAYING  ·  正在聆听", 9, 0xFF9A8EA4.toInt(), true))
-        heading.addView(label(currentFolderName, 18, 0xFF51435F.toInt(), true).apply {
+        heading.addView(label("NOW PLAYING  ·  正在聆听", 9, themeColor(0xFF9A8EA4.toInt()), true))
+        heading.addView(label(currentFolderName, 18, themeColor(0xFF51435F.toInt()), true).apply {
             maxLines = 2
             ellipsize = android.text.TextUtils.TruncateAt.END
             setPadding(0, dp(4), 0, dp(5))
@@ -457,7 +497,7 @@ class MainActivity : ComponentActivity() {
             gravity = Gravity.CENTER_VERTICAL
         }
         fun addCount(glyph: String, count: Int) {
-            counts.addView(label("$glyph  $count", 12, 0xFF81758F.toInt()).apply {
+            counts.addView(label("$glyph  $count", 12, themeColor(0xFF81758F.toInt())).apply {
                 setPadding(0, 0, dp(18), 0)
             })
         }
@@ -466,7 +506,7 @@ class MainActivity : ComponentActivity() {
         addCount("▤", scripts.size)
         heading.addView(counts)
         val trackName = tracks.getOrNull(currentTrack)?.name ?: "尚未选择音轨"
-        heading.addView(label(trackName, 11, 0xFF9A8EA4.toInt()).apply {
+        heading.addView(label(trackName, 11, themeColor(0xFF9A8EA4.toInt())).apply {
             maxLines = 1
             ellipsize = android.text.TextUtils.TruncateAt.END
             setPadding(0, dp(5), 0, 0)
@@ -477,7 +517,7 @@ class MainActivity : ComponentActivity() {
             clipToPadding = true
             clipChildren = true
             background = android.graphics.drawable.GradientDrawable().apply {
-                setColor(0xFFF0EAF5.toInt())
+                setColor(themeColor(0xFFF0EAF5.toInt()))
                 cornerRadius = dp(22).toFloat()
             }
             setPadding(dp(7), dp(8), dp(7), dp(8))
@@ -554,14 +594,14 @@ class MainActivity : ComponentActivity() {
         if (!getSharedPreferences("shengyu_settings", MODE_PRIVATE).getBoolean("artwork_blur_background", true)) return
         val uri = artworks.getOrNull(currentArt % artworks.size)
         if (uri == null) {
-            frame.setBackgroundColor(0xFFF0EAF5.toInt())
+            frame.setBackgroundColor(themeColor(0xFFF0EAF5.toInt()))
             return
         }
         try {
             val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
             contentResolver.openInputStream(uri)?.use { BitmapFactory.decodeStream(it, null, bounds) }
             if (bounds.outWidth <= 0 || bounds.outHeight <= 0) {
-                root.setBackgroundColor(0xFFF8F5FA.toInt())
+                root.setBackgroundColor(themeColor(0xFFF8F5FA.toInt()))
                 return
             }
 
@@ -636,11 +676,11 @@ class MainActivity : ComponentActivity() {
             val veil = android.graphics.drawable.ColorDrawable(android.graphics.Color.argb(38, 0, 0, 0))
             val shade = android.graphics.drawable.GradientDrawable(
                 android.graphics.drawable.GradientDrawable.Orientation.TOP_BOTTOM,
-                intArrayOf(0x24F8F5FA, 0x14F8F5FA, 0x99241C30.toInt())
+                intArrayOf(themeColor(0x24F8F5FA.toInt()), themeColor(0x14F8F5FA.toInt()), themeColor(0x99241C30.toInt()))
             )
             frame.background = android.graphics.drawable.LayerDrawable(arrayOf(backdrop, veil, shade))
         } catch (_: Exception) {
-            root.setBackgroundColor(0xFFF8F5FA.toInt())
+            root.setBackgroundColor(themeColor(0xFFF8F5FA.toInt()))
         }
     }
 
@@ -661,7 +701,7 @@ class MainActivity : ComponentActivity() {
             }
         }
         if (sample !== bitmap && !sample.isRecycled) sample.recycle()
-        if (count == 0L) return 0x55DCCFE8
+        if (count == 0L) return themeColor(0x55DCCFE8.toInt())
         val r = ((red / count) * 0.24 + 255 * 0.76).toInt().coerceIn(0, 255)
         val g = ((green / count) * 0.24 + 255 * 0.76).toInt().coerceIn(0, 255)
         val b = ((blue / count) * 0.24 + 255 * 0.76).toInt().coerceIn(0, 255)
@@ -716,12 +756,12 @@ class MainActivity : ComponentActivity() {
         val panel = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             setPadding(dp(18), dp(12), dp(18), dp(16))
-            background = android.graphics.drawable.GradientDrawable().apply { setColor(0xFFFAF8FC.toInt()); cornerRadius = dp(24).toFloat() }
+            background = android.graphics.drawable.GradientDrawable().apply { setColor(themeColor(0xFFFAF8FC.toInt())); cornerRadius = dp(24).toFloat() }
         }
-        panel.addView(View(this).apply { background = android.graphics.drawable.GradientDrawable().apply { setColor(0xFFD9D0E2.toInt()); cornerRadius = dp(3).toFloat() } }, LinearLayout.LayoutParams(dp(38), dp(5)).apply { gravity = Gravity.CENTER; bottomMargin = dp(10) })
-        panel.addView(label("标签筛选", 18, 0xFF51435F.toInt(), true).apply { setPadding(0, 0, 0, dp(8)) })
+        panel.addView(View(this).apply { background = android.graphics.drawable.GradientDrawable().apply { setColor(themeColor(0xFFD9D0E2.toInt())); cornerRadius = dp(3).toFloat() } }, LinearLayout.LayoutParams(dp(38), dp(5)).apply { gravity = Gravity.CENTER; bottomMargin = dp(10) })
+        panel.addView(label("标签筛选", 18, themeColor(0xFF51435F.toInt()), true).apply { setPadding(0, 0, 0, dp(8)) })
         val top = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL }
-        val search = EditText(this).apply { hint = "搜索标签"; setSingleLine(true); textSize = 14f; setPadding(dp(12), 0, dp(12), 0); background = android.graphics.drawable.GradientDrawable().apply { setColor(0xFFF0ECF4.toInt()); cornerRadius = dp(13).toFloat() } }
+        val search = EditText(this).apply { hint = "搜索标签"; setSingleLine(true); textSize = 14f; setPadding(dp(12), 0, dp(12), 0); background = android.graphics.drawable.GradientDrawable().apply { setColor(themeColor(0xFFF0ECF4.toInt())); cornerRadius = dp(13).toFloat() } }
         top.addView(search, LinearLayout.LayoutParams(0, dp(48), 1f))
         val editButton = button("编辑").apply { textSize = 12f }
         top.addView(editButton, LinearLayout.LayoutParams(dp(64), dp(44)))
@@ -736,7 +776,7 @@ class MainActivity : ComponentActivity() {
                 val header = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL }
                 val title = TextView(this@MainActivity).apply {
                     text = (if (group in collapsed) "▸ " else "▾ ") + group + "（${catalog[group]!!.size}）"
-                    textSize = 15f; setTypeface(typeface, android.graphics.Typeface.BOLD); setTextColor(0xFF514665.toInt())
+                    textSize = 15f; setTypeface(typeface, android.graphics.Typeface.BOLD); setTextColor(themeColor(0xFF514665.toInt()))
                     setPadding(0, dp(10), 0, dp(8))
                     setOnClickListener { if (!collapsed.add(group)) collapsed.remove(group); redraw(search.text.toString()) }
                 }
@@ -760,10 +800,10 @@ class MainActivity : ComponentActivity() {
                         val chip = TextView(this@MainActivity).apply {
                             text = tag; gravity = Gravity.CENTER; textSize = 13f
                             setPadding(dp(8), dp(8), dp(8), dp(8))
-                            setTextColor(if (tag in selected) -1 else 0xFF5C4D79.toInt())
+                            setTextColor(if (tag in selected) -1 else themeColor(0xFF5C4D79.toInt()))
                             background = android.graphics.drawable.GradientDrawable().apply {
                                 cornerRadius = dp(18).toFloat()
-                                setColor(if (tag in selected) 0xFF8B78AD.toInt() else 0xFFE8E0F1.toInt())
+                                setColor(if (tag in selected) themeColor(0xFF8B78AD.toInt()) else themeColor(0xFFE8E0F1.toInt()))
                             }
                             setOnClickListener {
                                 if (!editing) { if (!selected.add(tag)) selected.remove(tag) }
@@ -835,7 +875,7 @@ class MainActivity : ComponentActivity() {
         fun field(hint: String, value: String) = EditText(this).apply {
             this.hint = hint; setText(value); setSingleLine(true); textSize = 14f
             setPadding(dp(12), dp(10), dp(12), dp(10))
-            background = android.graphics.drawable.GradientDrawable().apply { setColor(0xFFF1ECF5.toInt()); cornerRadius = dp(12).toFloat() }
+            background = android.graphics.drawable.GradientDrawable().apply { setColor(themeColor(0xFFF1ECF5.toInt())); cornerRadius = dp(12).toFloat() }
         }
         val title = field("作品名", work.title)
         var selectedCover: Uri? = work.cover ?: work.arts.firstOrNull()
@@ -878,9 +918,9 @@ class MainActivity : ComponentActivity() {
             val available = catalog[group].orEmpty()
             val selected = target.text.toString().split(",", "，", "、").map { it.trim() }.filter { it.isNotBlank() }.toMutableSet()
             val panel = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setPadding(dp(16), dp(12), dp(16), dp(8)) }
-            panel.addView(label("选择$group 标签", 17, 0xFF51435F.toInt(), true).apply { setPadding(0, 0, 0, dp(10)) })
+            panel.addView(label("选择$group 标签", 17, themeColor(0xFF51435F.toInt()), true).apply { setPadding(0, 0, 0, dp(10)) })
             if (available.isEmpty()) {
-                panel.addView(label("还没有已保存的$group 标签。可以先在作品信息中填写并保存。", 13, 0xFF8A7E95.toInt()))
+                panel.addView(label("还没有已保存的$group 标签。可以先在作品信息中填写并保存。", 13, themeColor(0xFF8A7E95.toInt())))
             }
             val scroll = ScrollView(this)
             val chipArea = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
@@ -894,12 +934,12 @@ class MainActivity : ComponentActivity() {
                 available.forEach { tag ->
                     val chip = TextView(this).apply {
                         text = (if (tag in selected) "✓ " else "") + tag
-                        textSize = 13f; setTextColor(if (tag in selected) 0xFF51435F.toInt() else 0xFF756681.toInt())
+                        textSize = 13f; setTextColor(if (tag in selected) themeColor(0xFF51435F.toInt()) else themeColor(0xFF756681.toInt()))
                         gravity = Gravity.CENTER; setPadding(dp(12), dp(8), dp(12), dp(8))
                         background = android.graphics.drawable.GradientDrawable().apply {
-                            setColor(if (tag in selected) 0xFFE2D5EE.toInt() else 0xFFF1ECF5.toInt())
+                            setColor(if (tag in selected) themeColor(0xFFE2D5EE.toInt()) else themeColor(0xFFF1ECF5.toInt()))
                             cornerRadius = dp(18).toFloat()
-                            setStroke(dp(1), if (tag in selected) 0xFFB7A1CB.toInt() else 0xFFE7DDED.toInt())
+                            setStroke(dp(1), if (tag in selected) themeColor(0xFFB7A1CB.toInt()) else themeColor(0xFFE7DDED.toInt()))
                         }
                         setOnClickListener { if (!selected.add(tag)) selected.remove(tag); redrawChips() }
                     }
@@ -929,14 +969,14 @@ class MainActivity : ComponentActivity() {
             return row
         }
 
-        box.addView(label("作品名称", 12, 0xFF8A7E95.toInt(), true))
+        box.addView(label("作品名称", 12, themeColor(0xFF8A7E95.toInt()), true))
         box.addView(title, LinearLayout.LayoutParams(-1, dp(48)).apply { bottomMargin = dp(10) })
         box.addView(coverButton, LinearLayout.LayoutParams(-1, dp(46)).apply { bottomMargin = dp(10) })
-        box.addView(label("CV", 12, 0xFF8A7E95.toInt(), true))
+        box.addView(label("CV", 12, themeColor(0xFF8A7E95.toInt()), true))
         box.addView(tagRow("CV", cv), LinearLayout.LayoutParams(-1, dp(48)).apply { bottomMargin = dp(10) })
-        box.addView(label("社团", 12, 0xFF8A7E95.toInt(), true))
+        box.addView(label("社团", 12, themeColor(0xFF8A7E95.toInt()), true))
         box.addView(tagRow("社团", circle), LinearLayout.LayoutParams(-1, dp(48)).apply { bottomMargin = dp(10) })
-        box.addView(label("自定义标签 · 逗号分隔", 12, 0xFF8A7E95.toInt(), true))
+        box.addView(label("自定义标签 · 逗号分隔", 12, themeColor(0xFF8A7E95.toInt()), true))
         box.addView(tagRow("自定义", tags), LinearLayout.LayoutParams(-1, dp(48)))
 
         android.app.AlertDialog.Builder(this).setTitle("编辑作品信息").setView(ScrollView(this).apply { addView(box) })
@@ -1008,15 +1048,15 @@ class MainActivity : ComponentActivity() {
 
     private fun showImportSelection() {
         content.removeAllViews()
-        content.addView(label("选择要导入的文件", 22, 0xFF3E3552.toInt(), true))
-        content.addView(label("已扫描到的文件会列在这里；勾选后加入作品。", 13, 0xFF81798F.toInt()))
+        content.addView(label("选择要导入的文件", 22, themeColor(0xFF3E3552.toInt()), true))
+        content.addView(label("已扫描到的文件会列在这里；勾选后加入作品。", 13, themeColor(0xFF81798F.toInt())))
         val scroll = ScrollView(this)
         val list = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
         val checks = mutableListOf<Pair<CheckBox, Pair<String, Uri>>>()
         fun addGroup(title: String, items: List<Pair<String, Uri>>) {
-            list.addView(label(title, 16, 0xFF5C526F.toInt(), true).apply { setPadding(0, dp(12), 0, dp(4)) })
+            list.addView(label(title, 16, themeColor(0xFF5C526F.toInt()), true).apply { setPadding(0, dp(12), 0, dp(4)) })
             items.forEach { (name, uri) ->
-                val cb = CheckBox(this).apply { text = name; isChecked = true; setTextColor(0xFF3E3552.toInt()) }
+                val cb = CheckBox(this).apply { text = name; isChecked = true; setTextColor(themeColor(0xFF3E3552.toInt())) }
                 list.addView(cb); checks.add(cb to (name to uri))
             }
         }
@@ -1057,8 +1097,8 @@ class MainActivity : ComponentActivity() {
         val dialog = Dialog(this)
         val returnScreen = if (showScript) "script" else "home"
         var selectedTab = if (tracks.isNotEmpty()) 0 else 1
-        val panel = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setPadding(dp(14), dp(8), dp(14), dp(10)); background = android.graphics.drawable.GradientDrawable().apply { setColor(0xFFFCFBFD.toInt()); cornerRadius = dp(24).toFloat(); setStroke(dp(1), 0xFFECE7F0.toInt()) } }
-        panel.addView(View(this).apply { setBackgroundColor(0xFFB9AEC8.toInt()) }, LinearLayout.LayoutParams(dp(42), dp(4)).apply { gravity = Gravity.CENTER; bottomMargin = dp(10) })
+        val panel = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setPadding(dp(14), dp(8), dp(14), dp(10)); background = android.graphics.drawable.GradientDrawable().apply { setColor(themeColor(0xFFFCFBFD.toInt())); cornerRadius = dp(24).toFloat(); setStroke(dp(1), themeColor(0xFFECE7F0.toInt())) } }
+        panel.addView(View(this).apply { setBackgroundColor(themeColor(0xFFB9AEC8.toInt())) }, LinearLayout.LayoutParams(dp(42), dp(4)).apply { gravity = Gravity.CENTER; bottomMargin = dp(10) })
         val tabs = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER }
         val scroll = ScrollView(this)
         val list = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
@@ -1067,33 +1107,33 @@ class MainActivity : ComponentActivity() {
             if (selectedTab == 0) {
                 tracks.forEachIndexed { i, track ->
                     val active = i == currentTrack
-                    val row = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL; background = android.graphics.drawable.GradientDrawable().apply { setColor(if (active) 0xFFF1ECF8.toInt() else android.graphics.Color.TRANSPARENT); cornerRadius = dp(18).toFloat() } }
-                    row.addView(TextView(this).apply { text = (if (active) "▶  " else "") + "%02d".format(i + 1) + ".  " + track.name; textSize = 15f; gravity = Gravity.CENTER_VERTICAL; setPadding(dp(16), 0, dp(6), 0); setTextColor(if (active) 0xFF70558F.toInt() else 0xFF494452.toInt()); setTypeface(typeface, if (active) android.graphics.Typeface.BOLD else android.graphics.Typeface.NORMAL); maxLines = 1; ellipsize = android.text.TextUtils.TruncateAt.MIDDLE; setOnClickListener { dialog.dismiss(); currentScreen = returnScreen; playTrack(i) } }, LinearLayout.LayoutParams(0, dp(66), 1f))
-                    row.addView(TextView(this).apply { text = "⠿"; textSize = 22f; gravity = Gravity.CENTER; setTextColor(0xFF9487A1.toInt()); setOnLongClickListener { v -> v.startDragAndDrop(android.content.ClipData.newPlainText("track-index", i.toString()), View.DragShadowBuilder(v), i, 0); true }; setOnDragListener { _, e -> if (e.action == android.view.DragEvent.ACTION_DROP) { val from = e.localState as? Int; if (from != null && from in tracks.indices && from != i) { val moved = tracks.removeAt(from); tracks.add(i, moved); val wi = works.indexOfFirst { it.folder == folderUri }; if (wi >= 0) { works[wi] = works[wi].copy(tracks = tracks.toList()); saveWorks() }; refreshRows() } }; true } }, LinearLayout.LayoutParams(dp(42), dp(60)))
+                    val row = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL; background = android.graphics.drawable.GradientDrawable().apply { setColor(if (active) themeColor(0xFFF1ECF8.toInt()) else android.graphics.Color.TRANSPARENT); cornerRadius = dp(18).toFloat() } }
+                    row.addView(TextView(this).apply { text = (if (active) "▶  " else "") + "%02d".format(i + 1) + ".  " + track.name; textSize = 15f; gravity = Gravity.CENTER_VERTICAL; setPadding(dp(16), 0, dp(6), 0); setTextColor(if (active) themeColor(0xFF70558F.toInt()) else themeColor(0xFF494452.toInt())); setTypeface(typeface, if (active) android.graphics.Typeface.BOLD else android.graphics.Typeface.NORMAL); maxLines = 1; ellipsize = android.text.TextUtils.TruncateAt.MIDDLE; setOnClickListener { dialog.dismiss(); currentScreen = returnScreen; playTrack(i) } }, LinearLayout.LayoutParams(0, dp(66), 1f))
+                    row.addView(TextView(this).apply { text = "⠿"; textSize = 22f; gravity = Gravity.CENTER; setTextColor(themeColor(0xFF9487A1.toInt())); setOnLongClickListener { v -> v.startDragAndDrop(android.content.ClipData.newPlainText("track-index", i.toString()), View.DragShadowBuilder(v), i, 0); true }; setOnDragListener { _, e -> if (e.action == android.view.DragEvent.ACTION_DROP) { val from = e.localState as? Int; if (from != null && from in tracks.indices && from != i) { val moved = tracks.removeAt(from); tracks.add(i, moved); val wi = works.indexOfFirst { it.folder == folderUri }; if (wi >= 0) { works[wi] = works[wi].copy(tracks = tracks.toList()); saveWorks() }; refreshRows() } }; true } }, LinearLayout.LayoutParams(dp(42), dp(60)))
                     list.addView(row, LinearLayout.LayoutParams(-1, dp(66)).apply { bottomMargin = dp(2) })
                 }
-                if (tracks.isEmpty()) list.addView(label("这个作品没有音轨", 13, 0xFF9A8EA4.toInt()).apply { setPadding(dp(12), dp(18), 0, dp(18)) })
+                if (tracks.isEmpty()) list.addView(label("这个作品没有音轨", 13, themeColor(0xFF9A8EA4.toInt())).apply { setPadding(dp(12), dp(18), 0, dp(18)) })
             } else {
                 scripts.forEachIndexed { i, uri ->
                     val row = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL }
-                    row.addView(TextView(this).apply { text = "%02d".format(i + 1) + ".  " + (uri.lastPathSegment?.substringAfterLast("/") ?: ("台本 " + (i + 1))); textSize = 15f; gravity = Gravity.CENTER_VERTICAL; setPadding(dp(16), 0, dp(6), 0); setTextColor(0xFF494452.toInt()); maxLines = 1; ellipsize = android.text.TextUtils.TruncateAt.MIDDLE; setOnClickListener { selectedScriptIndex = i; dialog.dismiss(); currentScreen = returnScreen; showScript = true; loadScript() } }, LinearLayout.LayoutParams(0, dp(66), 1f))
-                    row.addView(TextView(this).apply { text = "▤"; textSize = 18f; gravity = Gravity.CENTER; setTextColor(0xFF9993A7.toInt()); setOnClickListener { selectedScriptIndex = i; dialog.dismiss(); currentScreen = returnScreen; showScript = true; loadScript() } }, LinearLayout.LayoutParams(dp(42), dp(60)))
-                    row.addView(TextView(this).apply { text = "⠿"; textSize = 22f; gravity = Gravity.CENTER; setTextColor(0xFF9487A1.toInt()); setOnLongClickListener { v -> v.startDragAndDrop(android.content.ClipData.newPlainText("script-index", i.toString()), View.DragShadowBuilder(v), i, 0); true }; setOnDragListener { _, e -> if (e.action == android.view.DragEvent.ACTION_DROP) { val from = e.localState as? Int; if (from != null && from in scripts.indices && from != i) { val moved = scripts.removeAt(from); scripts.add(i, moved); val wi = works.indexOfFirst { it.folder == folderUri }; if (wi >= 0) { works[wi] = works[wi].copy(scripts = scripts.toList()); saveWorks() }; getSharedPreferences("shengyu_script_order", MODE_PRIVATE).edit().putString("order_" + (folderUri?.toString()?.hashCode() ?: currentFolderName.hashCode()), scripts.joinToString("\n") { it.toString() }).apply(); refreshRows() } }; true } }, LinearLayout.LayoutParams(dp(42), dp(60)))
+                    row.addView(TextView(this).apply { text = "%02d".format(i + 1) + ".  " + (uri.lastPathSegment?.substringAfterLast("/") ?: ("台本 " + (i + 1))); textSize = 15f; gravity = Gravity.CENTER_VERTICAL; setPadding(dp(16), 0, dp(6), 0); setTextColor(themeColor(0xFF494452.toInt())); maxLines = 1; ellipsize = android.text.TextUtils.TruncateAt.MIDDLE; setOnClickListener { selectedScriptIndex = i; dialog.dismiss(); currentScreen = returnScreen; showScript = true; loadScript() } }, LinearLayout.LayoutParams(0, dp(66), 1f))
+                    row.addView(TextView(this).apply { text = "▤"; textSize = 18f; gravity = Gravity.CENTER; setTextColor(themeColor(0xFF9993A7.toInt())); setOnClickListener { selectedScriptIndex = i; dialog.dismiss(); currentScreen = returnScreen; showScript = true; loadScript() } }, LinearLayout.LayoutParams(dp(42), dp(60)))
+                    row.addView(TextView(this).apply { text = "⠿"; textSize = 22f; gravity = Gravity.CENTER; setTextColor(themeColor(0xFF9487A1.toInt())); setOnLongClickListener { v -> v.startDragAndDrop(android.content.ClipData.newPlainText("script-index", i.toString()), View.DragShadowBuilder(v), i, 0); true }; setOnDragListener { _, e -> if (e.action == android.view.DragEvent.ACTION_DROP) { val from = e.localState as? Int; if (from != null && from in scripts.indices && from != i) { val moved = scripts.removeAt(from); scripts.add(i, moved); val wi = works.indexOfFirst { it.folder == folderUri }; if (wi >= 0) { works[wi] = works[wi].copy(scripts = scripts.toList()); saveWorks() }; getSharedPreferences("shengyu_script_order", MODE_PRIVATE).edit().putString("order_" + (folderUri?.toString()?.hashCode() ?: currentFolderName.hashCode()), scripts.joinToString("\n") { it.toString() }).apply(); refreshRows() } }; true } }, LinearLayout.LayoutParams(dp(42), dp(60)))
                     list.addView(row, LinearLayout.LayoutParams(-1, dp(66)).apply { bottomMargin = dp(2) })
                 }
-                if (scripts.isEmpty()) list.addView(label("这个作品没有台本", 13, 0xFF9A8EA4.toInt()).apply { setPadding(dp(12), dp(18), 0, dp(18)) })
+                if (scripts.isEmpty()) list.addView(label("这个作品没有台本", 13, themeColor(0xFF9A8EA4.toInt())).apply { setPadding(dp(12), dp(18), 0, dp(18)) })
             }
         }
         fun tab(title: String, index: Int): LinearLayout {
             val box = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; gravity = Gravity.CENTER }
-            box.addView(TextView(this).apply { text = title; textSize = 16f; gravity = Gravity.CENTER; setTextColor(if (selectedTab == index) 0xFF70558F.toInt() else 0xFF8D8999.toInt()); setPadding(0, dp(8), 0, dp(10)) }, LinearLayout.LayoutParams(-1, dp(48)))
-            box.addView(View(this).apply { setBackgroundColor(if (selectedTab == index) 0xFF70558F.toInt() else 0x00FFFFFF) }, LinearLayout.LayoutParams(-1, dp(3)))
+            box.addView(TextView(this).apply { text = title; textSize = 16f; gravity = Gravity.CENTER; setTextColor(if (selectedTab == index) themeColor(0xFF70558F.toInt()) else themeColor(0xFF8D8999.toInt())); setPadding(0, dp(8), 0, dp(10)) }, LinearLayout.LayoutParams(-1, dp(48)))
+            box.addView(View(this).apply { setBackgroundColor(if (selectedTab == index) themeColor(0xFF70558F.toInt()) else themeColor(0x00FFFFFF.toInt())) }, LinearLayout.LayoutParams(-1, dp(3)))
             box.setOnClickListener { selectedTab = index; tabs.removeAllViews(); tabs.addView(tab("♫  音轨列表", 0), LinearLayout.LayoutParams(0, -2, 1f)); tabs.addView(tab("▤  台本", 1), LinearLayout.LayoutParams(0, -2, 1f)); refreshRows() }
             return box
         }
         tabs.addView(tab("♫  音轨列表", 0), LinearLayout.LayoutParams(0, -2, 1f)); tabs.addView(tab("▤  台本", 1), LinearLayout.LayoutParams(0, -2, 1f))
         panel.addView(tabs)
-        panel.addView(View(this).apply { setBackgroundColor(0xFFECE8F1.toInt()) }, LinearLayout.LayoutParams(-1, dp(1)))
+        panel.addView(View(this).apply { setBackgroundColor(themeColor(0xFFECE8F1.toInt())) }, LinearLayout.LayoutParams(-1, dp(1)))
         scroll.addView(list); panel.addView(scroll, LinearLayout.LayoutParams(-1, 0, 1f)); refreshRows()
         dialog.setContentView(panel); dialog.setOnCancelListener { currentScreen = returnScreen }; dialog.show()
         dialog.window?.setBackgroundDrawableResource(android.R.color.transparent); dialog.window?.setLayout(-1, (resources.displayMetrics.heightPixels * 0.68f).toInt()); dialog.window?.setGravity(Gravity.BOTTOM); dialog.window?.setDimAmount(0.28f)
@@ -1158,11 +1198,11 @@ class MainActivity : ComponentActivity() {
         private var errorMessage: String? = null
 
         private val pagePaint = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG).apply {
-            color = 0xFFFFFFFF.toInt()
+            color = themeColor(0xFFFFFFFF.toInt())
         }
         private val bitmapPaint = android.graphics.Paint(android.graphics.Paint.FILTER_BITMAP_FLAG or android.graphics.Paint.ANTI_ALIAS_FLAG)
         private val messagePaint = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG).apply {
-            color = 0xFF81798F.toInt()
+            color = themeColor(0xFF81798F.toInt())
             textSize = dp(14).toFloat()
             textAlign = android.graphics.Paint.Align.CENTER
         }
@@ -1185,7 +1225,7 @@ class MainActivity : ComponentActivity() {
             })
 
         init {
-            setBackgroundColor(0xFFF8F5FA.toInt())
+            setBackgroundColor(themeColor(0xFFF8F5FA.toInt()))
             isClickable = true
             openDocument()
         }
@@ -1499,7 +1539,7 @@ class MainActivity : ComponentActivity() {
             val body = LinearLayout(this).apply {
                 orientation = LinearLayout.VERTICAL
                 background = android.graphics.drawable.GradientDrawable().apply {
-                    setColor(0xFFFCFAFD.toInt())
+                    setColor(themeColor(0xFFFCFAFD.toInt()))
                     cornerRadius = dp(18).toFloat()
                 }
             }
@@ -1514,7 +1554,7 @@ class MainActivity : ComponentActivity() {
             body.addView(TextView(this).apply {
                 text = currentScriptText
                 textSize = 17.5f
-                setTextColor(0xFF51475B.toInt())
+                setTextColor(themeColor(0xFF51475B.toInt()))
                 gravity = Gravity.START
                 setLineSpacing(dp(9).toFloat(), 1.12f)
                 setPadding(dp(20), dp(22), dp(20), dp(30))
@@ -1554,12 +1594,12 @@ class MainActivity : ComponentActivity() {
     private fun renderBottomControls() {
         val progressRow = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setPadding(dp(2), dp(2), dp(2), dp(4)) }
         val times = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL }
-        elapsedLabel = label("0:00", 11, 0xFF81798F.toInt()); durationLabel = label("0:00", 11, 0xFF81798F.toInt())
+        elapsedLabel = label("0:00", 11, themeColor(0xFF81798F.toInt())); durationLabel = label("0:00", 11, themeColor(0xFF81798F.toInt()))
         times.addView(elapsedLabel, LinearLayout.LayoutParams(0, -2, 1f)); durationLabel?.gravity = Gravity.END; times.addView(durationLabel); progressRow.addView(times)
-        progressBar = SeekBar(this).apply { max = 1000; progress = 0; setPadding(dp(2), 0, dp(2), 0); progressTintList = android.content.res.ColorStateList.valueOf(0xFF927DAA.toInt()); thumbTintList = android.content.res.ColorStateList.valueOf(0xFF927DAA.toInt()); progressBackgroundTintList = android.content.res.ColorStateList.valueOf(0xFFE5DDEB.toInt()); setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener { override fun onProgressChanged(seekBar: SeekBar?, progress: Int, fromUser: Boolean) { val p = player ?: return; if (fromUser && p.duration > 0) p.seekTo((p.duration.toLong() * progress / 1000L).toInt()) }; override fun onStartTrackingTouch(seekBar: SeekBar?) {}; override fun onStopTrackingTouch(seekBar: SeekBar?) { savePlaybackMemory() } }) }
+        progressBar = SeekBar(this).apply { max = 1000; progress = 0; setPadding(dp(2), 0, dp(2), 0); progressTintList = android.content.res.ColorStateList.valueOf(themeColor(0xFF927DAA.toInt())); thumbTintList = android.content.res.ColorStateList.valueOf(themeColor(0xFF927DAA.toInt())); progressBackgroundTintList = android.content.res.ColorStateList.valueOf(themeColor(0xFFE5DDEB.toInt())); setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener { override fun onProgressChanged(seekBar: SeekBar?, progress: Int, fromUser: Boolean) { val p = player ?: return; if (fromUser && p.duration > 0) p.seekTo((p.duration.toLong() * progress / 1000L).toInt()) }; override fun onStartTrackingTouch(seekBar: SeekBar?) {}; override fun onStopTrackingTouch(seekBar: SeekBar?) { savePlaybackMemory() } }) }
         progressRow.addView(progressBar); content.addView(progressRow); progressHandler.removeCallbacks(progressUpdater); progressHandler.post(progressUpdater)
         val row = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER; setPadding(0, dp(5), 0, dp(2)) }
-        fun addControl(title: String, action: () -> Unit, primary: Boolean = false) { val control = TextView(this).apply { text = title; textSize = if (primary) 24f else 19f; gravity = Gravity.CENTER; setTextColor(if (primary) 0xFFFFFFFF.toInt() else 0xFF6D5D7D.toInt()); background = android.graphics.drawable.GradientDrawable().apply { cornerRadius = dp(if (primary) 28 else 18).toFloat(); setColor(if (primary) 0xFF927DAA.toInt() else 0xFFEDE5F2.toInt()) }; if (primary) elevation = dp(3).toFloat(); setOnClickListener { action() } }; row.addView(control, LinearLayout.LayoutParams(0, dp(if (primary) 56 else 48), 1f).apply { setMargins(dp(3), 0, dp(3), 0) }) }
+        fun addControl(title: String, action: () -> Unit, primary: Boolean = false) { val control = TextView(this).apply { text = title; textSize = if (primary) 24f else 19f; gravity = Gravity.CENTER; setTextColor(if (primary) themeColor(0xFFFFFFFF.toInt()) else themeColor(0xFF6D5D7D.toInt())); background = android.graphics.drawable.GradientDrawable().apply { cornerRadius = dp(if (primary) 28 else 18).toFloat(); setColor(if (primary) themeColor(0xFF927DAA.toInt()) else themeColor(0xFFEDE5F2.toInt())) }; if (primary) elevation = dp(3).toFloat(); setOnClickListener { action() } }; row.addView(control, LinearLayout.LayoutParams(0, dp(if (primary) 56 else 48), 1f).apply { setMargins(dp(3), 0, dp(3), 0) }) }
         addControl("☷", { showTrackList() }); addControl("↶", { player?.let { p -> val seconds = getSharedPreferences("shengyu_settings", MODE_PRIVATE).getInt("seek_back_seconds", 15); p.seekTo((p.currentPosition - seconds * 1000).coerceAtLeast(0)) } })
         addControl(if (player?.isPlaying == true) "Ⅱ" else "▶", { if (player?.isPlaying == true) { player?.pause(); updateMediaPlaybackState(false); updateMediaNotification(); if (showScript) loadScript() else renderHome() } else if (currentTrack >= 0) { player?.start(); updateMediaPlaybackState(true); updateMediaNotification(); if (showScript) loadScript() else renderHome() } else if (tracks.isNotEmpty()) playTrack(0) }, true)
         addControl("↷", { player?.let { p -> val seconds = getSharedPreferences("shengyu_settings", MODE_PRIVATE).getInt("seek_forward_seconds", 15); p.seekTo((p.currentPosition + seconds * 1000).coerceAtMost(p.duration)) } })
@@ -1617,7 +1657,7 @@ class MainActivity : ComponentActivity() {
         if (artworks.isEmpty()) return
         var index = startIndex.coerceIn(0, artworks.lastIndex)
         val dialog = Dialog(this)
-        val frame = FrameLayout(this).apply { setBackgroundColor(0xFF17151D.toInt()) }
+        val frame = FrameLayout(this).apply { setBackgroundColor(themeColor(0xFF17151D.toInt())) }
         val viewer = FrameLayout(this)
         val image = ImageView(this).apply { scaleType = ImageView.ScaleType.MATRIX }
         viewer.addView(image, FrameLayout.LayoutParams(-1, -1))
@@ -1681,11 +1721,11 @@ class MainActivity : ComponentActivity() {
                 val cell = FrameLayout(this)
                 val thumb = ImageView(this).apply {
                     scaleType = ImageView.ScaleType.CENTER_CROP
-                    setBackgroundColor(0xFF292530.toInt())
+                    setBackgroundColor(themeColor(0xFF292530.toInt()))
                     if (artIndex == index) {
                         foreground = android.graphics.drawable.GradientDrawable().apply {
-                            setColor(0x22000000)
-                            setStroke(dp(3), 0xFFD8C5F2.toInt())
+                            setColor(themeColor(0x22000000.toInt()))
+                            setStroke(dp(3), themeColor(0xFFD8C5F2.toInt()))
                             cornerRadius = dp(10).toFloat()
                         }
                     }
@@ -1723,17 +1763,17 @@ class MainActivity : ComponentActivity() {
             val header = TextView(this).apply {
                 text = "插图总览  ·  ${artworks.size} 张"
                 textSize = 16f
-                setTextColor(0xFFF8F5FA.toInt())
+                setTextColor(themeColor(0xFFF8F5FA.toInt()))
                 gravity = Gravity.CENTER_VERTICAL
                 setPadding(dp(18), 0, dp(18), 0)
-                setBackgroundColor(0xFF24212B.toInt())
+                setBackgroundColor(themeColor(0xFF24212B.toInt()))
             }
             gridHeader = header
             frame.addView(header, FrameLayout.LayoutParams(-1, dp(48), Gravity.TOP))
             val closeGrid = TextView(this).apply {
                 text = "×"
                 textSize = 30f
-                setTextColor(0xFFF8F5FA.toInt())
+                setTextColor(themeColor(0xFFF8F5FA.toInt()))
                 gravity = Gravity.CENTER
                 setOnClickListener {
                     gridVisible = false
@@ -1753,11 +1793,11 @@ class MainActivity : ComponentActivity() {
             text = "▦"
             textSize = 23f
             gravity = Gravity.CENTER
-            setTextColor(0xFFF8F3FF.toInt())
+            setTextColor(themeColor(0xFFF8F3FF.toInt()))
             background = android.graphics.drawable.GradientDrawable().apply {
                 shape = android.graphics.drawable.GradientDrawable.OVAL
-                setColor(0xE62B2733.toInt())
-                setStroke(dp(1), 0x88D8C5F2.toInt())
+                setColor(themeColor(0xE62B2733.toInt()))
+                setStroke(dp(1), themeColor(0x88D8C5F2.toInt()))
             }
             elevation = dp(8).toFloat()
             contentDescription = "插图网格预览"
@@ -1831,7 +1871,7 @@ class MainActivity : ComponentActivity() {
     private inner class AlertDialogBuilder {
         fun show(seek: SeekBar) {
             val box = LinearLayout(this@MainActivity).apply { orientation = LinearLayout.VERTICAL; setPadding(dp(20), dp(10), dp(20), dp(10)) }
-            box.addView(label("音量", 16, 0xFF3E3552.toInt(), true)); box.addView(seek)
+            box.addView(label("音量", 16, themeColor(0xFF3E3552.toInt()), true)); box.addView(seek)
             seek.setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
                 override fun onProgressChanged(s: SeekBar?, p: Int, fromUser: Boolean) { player?.setVolume(p / 100f, p / 100f) }
                 override fun onStartTrackingTouch(s: SeekBar?) {}
@@ -1920,11 +1960,11 @@ class MainActivity : ComponentActivity() {
             Toast.makeText(this, "扫描完成：新增 ${newItems.size} 部，更新 ${changedItems.size} 部", Toast.LENGTH_LONG).show(); renderLibrary(); return
         }
         val panel = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setPadding(dp(18), dp(8), dp(18), dp(8)) }
-        panel.addView(label("发现 ${discovered.size} 部作品 · 新增 ${newItems.size} 部 · 有变化 ${changedItems.size} 部", 14, 0xFF81798F.toInt()))
+        panel.addView(label("发现 ${discovered.size} 部作品 · 新增 ${newItems.size} 部 · 有变化 ${changedItems.size} 部", 14, themeColor(0xFF81798F.toInt())))
         val scroll = ScrollView(this); val list = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
         val rows = mutableListOf<Pair<CheckBox, ScannedWork>>()
         discovered.forEach { item -> val old = existing(item); val isChanged = changed(item); val status = if (old == null) "新作品" else if (isChanged) "文件有变化" else "已导入"
-            val cb = CheckBox(this).apply { text = "${item.folder.name ?: "未命名作品"} · $status"; isChecked = old == null || isChanged; isEnabled = old == null || isChanged; setTextColor(0xFF3E3552.toInt()) }
+            val cb = CheckBox(this).apply { text = "${item.folder.name ?: "未命名作品"} · $status"; isChecked = old == null || isChanged; isEnabled = old == null || isChanged; setTextColor(themeColor(0xFF3E3552.toInt())) }
             list.addView(cb); rows.add(cb to item)
         }
         scroll.addView(list); panel.addView(scroll, LinearLayout.LayoutParams(-1, dp(350)))
@@ -1964,17 +2004,76 @@ class MainActivity : ComponentActivity() {
 
     private fun showAppearanceSettings() {
         val prefs = getSharedPreferences("shengyu_settings", MODE_PRIVATE)
-        val useBlur = prefs.getBoolean("artwork_blur_background", true)
-        android.app.AlertDialog.Builder(this)
-            .setTitle("外观")
-            .setSingleChoiceItems(arrayOf("插画动态模糊背景", "柔和主色背景"), if (useBlur) 0 else 1) { dialog, which ->
-                prefs.edit().putBoolean("artwork_blur_background", which == 0).apply()
-                dialog.dismiss()
-                if (currentScreen == "home" || currentScreen == "script" || currentScreen == "tracklist") {
-                    if (showScript) loadScript() else renderHome()
+        val panel = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(22), dp(6), dp(22), dp(8))
+        }
+
+        panel.addView(label("主题颜色", 13, themeColor(0xFF81798F.toInt()), true).apply {
+            setPadding(0, dp(4), 0, dp(10))
+        })
+
+        var appearanceDialog: android.app.AlertDialog? = null
+        val swatches = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER
+        }
+        themeOptions.forEach { option ->
+            val selected = option.id == selectedThemeId()
+            val swatch = TextView(this).apply {
+                text = if (selected) "✓" else ""
+                textSize = 17f
+                gravity = Gravity.CENTER
+                setTextColor(android.graphics.Color.WHITE)
+                contentDescription = option.name + if (selected) "，当前主题" else "主题"
+                background = android.graphics.drawable.GradientDrawable().apply {
+                    shape = android.graphics.drawable.GradientDrawable.OVAL
+                    setColor(themeColorFor(0xFF806B9A.toInt(), option.id))
+                    setStroke(
+                        dp(if (selected) 2 else 1),
+                        if (selected) themeColorFor(0xFF51435F.toInt(), option.id)
+                        else themeColorFor(0xFFEAE3F0.toInt(), option.id)
+                    )
+                }
+                setOnClickListener {
+                    prefs.edit().putString("app_theme", option.id).apply()
+                    appearanceDialog?.dismiss()
+                    refreshThemeScreen()
+                    showAppearanceSettings()
                 }
             }
-            .setNegativeButton("完成", null)
+            swatches.addView(swatch, LinearLayout.LayoutParams(dp(38), dp(38)).apply {
+                weight = 1f
+                marginStart = dp(3)
+                marginEnd = dp(3)
+            })
+        }
+        panel.addView(swatches, LinearLayout.LayoutParams(-1, dp(48)))
+
+        val currentName = themeOptions.firstOrNull { it.id == selectedThemeId() }?.name ?: "薰衣草紫"
+        panel.addView(label("当前：$currentName", 11, themeColor(0xFF9A8EA4.toInt())).apply {
+            gravity = Gravity.CENTER
+            setPadding(0, dp(2), 0, dp(12))
+        })
+
+        val useBlur = prefs.getBoolean("artwork_blur_background", true)
+        val blurSwitch = CheckBox(this).apply {
+            text = "插画动态模糊背景"
+            textSize = 14f
+            setTextColor(themeColor(0xFF51435F.toInt()))
+            isChecked = useBlur
+            buttonTintList = android.content.res.ColorStateList.valueOf(themeColor(0xFF9A82B3.toInt()))
+            setOnCheckedChangeListener { _, checked ->
+                prefs.edit().putBoolean("artwork_blur_background", checked).apply()
+                refreshThemeScreen()
+            }
+        }
+        panel.addView(blurSwitch)
+
+        appearanceDialog = android.app.AlertDialog.Builder(this)
+            .setTitle("外观")
+            .setView(panel)
+            .setPositiveButton("完成", null)
             .showStyled()
     }
 
@@ -2015,7 +2114,7 @@ class MainActivity : ComponentActivity() {
             text = if (initialMinutes == 0) "立即停止" else "$initialMinutes 分钟后停止"
             textSize = 26f
             gravity = Gravity.CENTER
-            setTextColor(0xFF51435F.toInt())
+            setTextColor(themeColor(0xFF51435F.toInt()))
             setPadding(0, dp(12), 0, dp(18))
         }
         panel.addView(valueLabel, LinearLayout.LayoutParams(-1, -2))
@@ -2029,9 +2128,9 @@ class MainActivity : ComponentActivity() {
             textSize = 28f
             gravity = Gravity.CENTER
             contentDescription = description
-            setTextColor(0xFF806B9A.toInt())
+            setTextColor(themeColor(0xFF806B9A.toInt()))
             background = android.graphics.drawable.GradientDrawable().apply {
-                setColor(0xFFEDE5F2.toInt())
+                setColor(themeColor(0xFFEDE5F2.toInt()))
                 cornerRadius = dp(14).toFloat()
             }
         }
@@ -2040,9 +2139,9 @@ class MainActivity : ComponentActivity() {
         val seek = android.widget.SeekBar(this).apply {
             max = 60
             progress = initialMinutes
-            progressTintList = android.content.res.ColorStateList.valueOf(0xFF9A82B3.toInt())
-            thumbTintList = android.content.res.ColorStateList.valueOf(0xFF9A82B3.toInt())
-            progressBackgroundTintList = android.content.res.ColorStateList.valueOf(0xFFE8DFF0.toInt())
+            progressTintList = android.content.res.ColorStateList.valueOf(themeColor(0xFF9A82B3.toInt()))
+            thumbTintList = android.content.res.ColorStateList.valueOf(themeColor(0xFF9A82B3.toInt()))
+            progressBackgroundTintList = android.content.res.ColorStateList.valueOf(themeColor(0xFFE8DFF0.toInt()))
             contentDescription = "定时分钟数，0 到 60 分钟"
         }
         sliderRow.addView(minus, LinearLayout.LayoutParams(dp(44), dp(44)))
@@ -2055,7 +2154,7 @@ class MainActivity : ComponentActivity() {
         val scale = TextView(this).apply {
             text = "0 分钟                                                60 分钟"
             textSize = 12f
-            setTextColor(0xFF9B91A4.toInt())
+            setTextColor(themeColor(0xFF9B91A4.toInt()))
             setPadding(0, dp(4), 0, dp(18))
         }
         panel.addView(scale)
@@ -2063,16 +2162,16 @@ class MainActivity : ComponentActivity() {
         val defaultSwitch = android.widget.CheckBox(this).apply {
             text = "设为默认"
             textSize = 15f
-            setTextColor(0xFF62536F.toInt())
+            setTextColor(themeColor(0xFF62536F.toInt()))
             isChecked = defaultEnabled
-            buttonTintList = android.content.res.ColorStateList.valueOf(0xFF9A82B3.toInt())
+            buttonTintList = android.content.res.ColorStateList.valueOf(themeColor(0xFF9A82B3.toInt()))
         }
         panel.addView(defaultSwitch)
 
         val status = TextView(this).apply {
             text = if (sleepTimerEndAt > System.currentTimeMillis()) "当前定时剩余：${formatTimerRemaining()}" else "拖动进度条或使用 + / − 调整时间"
             textSize = 12f
-            setTextColor(0xFF9B91A4.toInt())
+            setTextColor(themeColor(0xFF9B91A4.toInt()))
             setPadding(0, dp(8), 0, dp(4))
         }
         panel.addView(status)
@@ -2119,14 +2218,14 @@ class MainActivity : ComponentActivity() {
                 dialog.dismiss()
             }
             val surface = android.graphics.drawable.GradientDrawable().apply {
-                setColor(0xFFFAF8FC.toInt())
+                setColor(themeColor(0xFFFAF8FC.toInt()))
                 cornerRadius = dp(20).toFloat()
-                setStroke(dp(1), 0xFFEAE3F0.toInt())
+                setStroke(dp(1), themeColor(0xFFEAE3F0.toInt()))
             }
             dialog.window?.setBackgroundDrawable(surface)
-            dialog.getButton(android.app.AlertDialog.BUTTON_POSITIVE)?.setTextColor(0xFF806B9A.toInt())
-            dialog.getButton(android.app.AlertDialog.BUTTON_NEGATIVE)?.setTextColor(0xFF806B9A.toInt())
-            dialog.getButton(android.app.AlertDialog.BUTTON_NEUTRAL)?.setTextColor(0xFF806B9A.toInt())
+            dialog.getButton(android.app.AlertDialog.BUTTON_POSITIVE)?.setTextColor(themeColor(0xFF806B9A.toInt()))
+            dialog.getButton(android.app.AlertDialog.BUTTON_NEGATIVE)?.setTextColor(themeColor(0xFF806B9A.toInt()))
+            dialog.getButton(android.app.AlertDialog.BUTTON_NEUTRAL)?.setTextColor(themeColor(0xFF806B9A.toInt()))
         }
         dialog.show()
     }
@@ -2171,16 +2270,16 @@ class MainActivity : ComponentActivity() {
         val dialog = create()
         dialog.setOnShowListener {
             val surface = android.graphics.drawable.GradientDrawable().apply {
-                setColor(0xFFFAF8FC.toInt())
+                setColor(themeColor(0xFFFAF8FC.toInt()))
                 cornerRadius = dp(20).toFloat()
-                setStroke(dp(1), 0xFFEAE3F0.toInt())
+                setStroke(dp(1), themeColor(0xFFEAE3F0.toInt()))
             }
             dialog.window?.setBackgroundDrawable(surface)
-            dialog.getButton(android.app.AlertDialog.BUTTON_POSITIVE)?.setTextColor(0xFF806B9A.toInt())
-            dialog.getButton(android.app.AlertDialog.BUTTON_NEGATIVE)?.setTextColor(0xFF806B9A.toInt())
-            dialog.getButton(android.app.AlertDialog.BUTTON_NEUTRAL)?.setTextColor(0xFF806B9A.toInt())
+            dialog.getButton(android.app.AlertDialog.BUTTON_POSITIVE)?.setTextColor(themeColor(0xFF806B9A.toInt()))
+            dialog.getButton(android.app.AlertDialog.BUTTON_NEGATIVE)?.setTextColor(themeColor(0xFF806B9A.toInt()))
+            dialog.getButton(android.app.AlertDialog.BUTTON_NEUTRAL)?.setTextColor(themeColor(0xFF806B9A.toInt()))
             dialog.listView?.apply {
-                setBackgroundColor(0xFFFAF8FC.toInt())
+                setBackgroundColor(themeColor(0xFFFAF8FC.toInt()))
                 divider = null
                 dividerHeight = 0
             }
@@ -2189,7 +2288,7 @@ class MainActivity : ComponentActivity() {
             val topPanel = titleContainer?.parent as? android.view.ViewGroup
             if (titleContainer != null && topPanel != null && titleContainer.parent === topPanel) {
                 val divider = View(this@MainActivity).apply {
-                    setBackgroundColor(0xFFEAE3F0.toInt())
+                    setBackgroundColor(themeColor(0xFFEAE3F0.toInt()))
                 }
                 val dividerIndex = topPanel.indexOfChild(titleContainer) + 1
                 if (dividerIndex in 0..topPanel.childCount) {
@@ -2203,12 +2302,12 @@ class MainActivity : ComponentActivity() {
 
     private fun button(text: String) = Button(this).apply {
         this.text = text; textSize = 13f; isAllCaps = false
-        setTextColor(0xFF62536F.toInt())
+        setTextColor(themeColor(0xFF62536F.toInt()))
         backgroundTintList = null
         background = android.graphics.drawable.GradientDrawable().apply {
-            setColor(0xFFEDE5F2.toInt())
+            setColor(themeColor(0xFFEDE5F2.toInt()))
             cornerRadius = dp(14).toFloat()
-            setStroke(dp(1), 0xFFE4D9EB.toInt())
+            setStroke(dp(1), themeColor(0xFFE4D9EB.toInt()))
         }
         minHeight = dp(46)
         minimumHeight = dp(46)
