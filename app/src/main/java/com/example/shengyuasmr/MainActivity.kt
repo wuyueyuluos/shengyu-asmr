@@ -506,16 +506,16 @@ class MainActivity : ComponentActivity() {
         }
         updateArtworkFrameBackground(artFrame)
         content.addView(artFrame, artLp)
-        art.setOnClickListener {
-            if (artworks.isNotEmpty()) showArtPreview(currentArt)
-        }
         var bannerDownX = 0f
         var bannerDownY = 0f
+        var bannerHandledSwipe = false
         art.setOnTouchListener { _, event ->
             when (event.actionMasked) {
                 MotionEvent.ACTION_DOWN -> {
                     bannerDownX = event.x
                     bannerDownY = event.y
+                    bannerHandledSwipe = false
+                    true
                 }
                 MotionEvent.ACTION_UP -> {
                     val dx = event.x - bannerDownX
@@ -523,12 +523,16 @@ class MainActivity : ComponentActivity() {
                     if (artworks.size > 1 && kotlin.math.abs(dx) > dp(45) && kotlin.math.abs(dx) > kotlin.math.abs(dy)) {
                         currentArt = if (dx < 0) (currentArt + 1) % artworks.size
                             else (currentArt - 1 + artworks.size) % artworks.size
+                        bannerHandledSwipe = true
                         renderHome()
-                        return@setOnTouchListener true
+                    } else if (!bannerHandledSwipe && artworks.isNotEmpty()) {
+                        showArtPreview(currentArt)
                     }
+                    true
                 }
+                MotionEvent.ACTION_CANCEL -> true
+                else -> true
             }
-            false
         }
         renderBottomControls()
     }
@@ -1588,6 +1592,8 @@ class MainActivity : ComponentActivity() {
         var baseScale = 1f
         var currentScale = 1f
         var gridVisible = false
+        var gridHeader: View? = null
+        var gridClose: View? = null
 
         fun clampMatrix() {
             val drawable = image.drawable ?: return
@@ -1640,9 +1646,7 @@ class MainActivity : ComponentActivity() {
                 val cell = FrameLayout(this)
                 val thumb = ImageView(this).apply {
                     scaleType = ImageView.ScaleType.CENTER_CROP
-                    try {
-                        contentResolver.openInputStream(uri)?.use { setImageBitmap(BitmapFactory.decodeStream(it)) }
-                    } catch (_: Exception) { }
+                    setBackgroundColor(0xFF292530.toInt())
                     if (artIndex == index) {
                         foreground = android.graphics.drawable.GradientDrawable().apply {
                             setColor(0x22000000)
@@ -1652,10 +1656,22 @@ class MainActivity : ComponentActivity() {
                     }
                 }
                 cell.addView(thumb, FrameLayout.LayoutParams(-1, dp(124)))
+                Thread {
+                    val bitmap = try {
+                        contentResolver.openInputStream(uri)?.use { stream ->
+                            BitmapFactory.decodeStream(stream, null, BitmapFactory.Options().apply { inSampleSize = 4 })
+                        }
+                    } catch (_: Exception) { null }
+                    runOnUiThread { if (bitmap != null && !dialog.isShowing.not()) thumb.setImageBitmap(bitmap) }
+                }.start()
                 cell.setOnClickListener {
                     index = artIndex
                     gridVisible = false
                     frame.removeView(gridPage)
+                    gridHeader?.let { frame.removeView(it) }
+                    gridClose?.let { frame.removeView(it) }
+                    gridHeader = null
+                    gridClose = null
                     viewer.visibility = View.VISIBLE
                     displayImage()
                 }
@@ -1677,6 +1693,7 @@ class MainActivity : ComponentActivity() {
                 setPadding(dp(18), 0, dp(18), 0)
                 setBackgroundColor(0xFF24212B.toInt())
             }
+            gridHeader = header
             frame.addView(header, FrameLayout.LayoutParams(-1, dp(48), Gravity.TOP))
             val closeGrid = TextView(this).apply {
                 text = "×"
@@ -1686,30 +1703,33 @@ class MainActivity : ComponentActivity() {
                 setOnClickListener {
                     gridVisible = false
                     frame.removeView(gridPage)
-                    frame.removeViewAt(frame.childCount - 1) // remove the grid header
-                    frame.removeViewAt(frame.childCount - 1) // remove the close button
+                    gridHeader?.let { frame.removeView(it) }
+                    gridClose?.let { frame.removeView(it) }
+                    gridHeader = null
+                    gridClose = null
                     viewer.visibility = View.VISIBLE
                 }
             }
+            gridClose = closeGrid
             frame.addView(closeGrid, FrameLayout.LayoutParams(dp(48), dp(48), Gravity.TOP or Gravity.END))
         }
 
         val gridButton = TextView(this).apply {
             text = "▦"
-            textSize = 25f
+            textSize = 23f
             gravity = Gravity.CENTER
-            setTextColor(0xFFFFFFFF.toInt())
+            setTextColor(0xFFF8F3FF.toInt())
             background = android.graphics.drawable.GradientDrawable().apply {
                 shape = android.graphics.drawable.GradientDrawable.OVAL
-                setColor(0xAA393441.toInt())
-                setStroke(dp(1), 0x66FFFFFF)
+                setColor(0xE62B2733.toInt())
+                setStroke(dp(1), 0x88D8C5F2.toInt())
             }
-            elevation = dp(6).toFloat()
+            elevation = dp(8).toFloat()
             contentDescription = "插图网格预览"
-            setOnClickListener { showGrid() }
+            setOnClickListener { if (!gridVisible) showGrid() }
         }
-        viewer.addView(gridButton, FrameLayout.LayoutParams(dp(48), dp(48), Gravity.TOP or Gravity.END).apply {
-            topMargin = dp(16)
+        viewer.addView(gridButton, FrameLayout.LayoutParams(dp(44), dp(44), Gravity.TOP or Gravity.END).apply {
+            topMargin = dp(20)
             marginEnd = dp(16)
         })
 
@@ -1759,6 +1779,10 @@ class MainActivity : ComponentActivity() {
         }
         displayImage()
         dialog.setContentView(frame)
+        dialog.setOnDismissListener {
+            currentArt = index
+            renderHome()
+        }
         dialog.show()
         dialog.window?.setBackgroundDrawableResource(android.R.color.black)
         dialog.window?.setLayout(-1, -1)
