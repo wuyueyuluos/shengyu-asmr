@@ -115,11 +115,20 @@ class MainActivity : ComponentActivity() {
     private var durationLabel: TextView? = null
     private var resumePosition = 0
     private var folderUri: Uri? = null
+    private var pickingLibraryRoot = false
     private val pickFolder = registerForActivityResult(ActivityResultContracts.OpenDocumentTree()) { uri ->
         if (uri != null) {
-            contentResolver.takePersistableUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION)
-            folderUri = uri
-            scanFolder(uri)
+            try { contentResolver.takePersistableUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION) } catch (_: SecurityException) { }
+            if (pickingLibraryRoot) {
+                getSharedPreferences("shengyu_settings", MODE_PRIVATE).edit().putString("library_root_uri", uri.toString()).apply()
+                pickingLibraryRoot = false
+                showGeneralSettings()
+            } else {
+                folderUri = uri
+                scanFolder(uri)
+            }
+        } else {
+            pickingLibraryRoot = false
         }
     }
 
@@ -949,11 +958,37 @@ class MainActivity : ComponentActivity() {
             }.setNegativeButton("取消", null).showStyled()
     }
 
+    private fun folderIdentity(uri: Uri): String {
+        return try {
+            val id = if (uri.pathSegments.contains("document")) DocumentsContract.getDocumentId(uri) else DocumentsContract.getTreeDocumentId(uri)
+            "${uri.authority}:$id"
+        } catch (_: Exception) { uri.toString() }
+    }
+
+    private fun findFolderInTree(rootUri: Uri, targetUri: Uri): DocumentFile? {
+        val root = DocumentFile.fromTreeUri(this, rootUri) ?: return null
+        val target = folderIdentity(targetUri)
+        fun find(dir: DocumentFile): DocumentFile? {
+            if (folderIdentity(dir.uri) == target) return dir
+            if (!dir.isDirectory) return null
+            for (child in dir.listFiles()) {
+                if (child.isDirectory) {
+                    val match = find(child)
+                    if (match != null) return match
+                }
+            }
+            return null
+        }
+        return find(root)
+    }
+
     private fun scanFolder(uri: Uri) {
         saveLibraryScrollPosition()
         libraryScrollY = getSharedPreferences("shengyu_playback", MODE_PRIVATE).getLong("library_scroll_y", libraryScrollY.toLong()).toInt().coerceAtLeast(0)
         tracks.clear(); artworks.clear(); scripts.clear()
-        val folder = DocumentFile.fromTreeUri(this, uri)
+        val savedRoot = getSharedPreferences("shengyu_settings", MODE_PRIVATE).getString("library_root_uri", null)?.let { Uri.parse(it) }
+        val folder = (if (savedRoot != null) findFolderInTree(savedRoot, uri) else null)
+            ?: DocumentFile.fromTreeUri(this, uri)
         currentFolderName = folder?.name ?: "已选文件夹"
         fun walk(dir: DocumentFile) {
             dir.listFiles().forEach { f ->
@@ -1002,10 +1037,10 @@ class MainActivity : ComponentActivity() {
                     Toast.makeText(this@MainActivity, "没有获取到文件夹，请重新选择。", Toast.LENGTH_SHORT).show()
                     return@setOnClickListener
                 }
-                val previous = works.firstOrNull { it.folder.toString() == targetFolder.toString() }
+                val previous = works.firstOrNull { folderIdentity(it.folder) == folderIdentity(targetFolder) }
                 val work = LocalWork(currentFolderName, targetFolder, chosenTracks, chosenArts, chosenScripts,
                     previous?.cover ?: chosenArts.firstOrNull(), previous?.cv ?: "", previous?.circle ?: "", previous?.tags ?: emptyList(), previous?.favorite ?: false, previous?.importedAt ?: System.currentTimeMillis())
-                val existing = works.indexOfFirst { it.folder.toString() == targetFolder.toString() }
+                val existing = works.indexOfFirst { folderIdentity(it.folder) == folderIdentity(targetFolder) }
                 if (existing >= 0) works[existing] = work else works.add(work)
                 saveWorks()
                 scanningFolder = null
@@ -1809,16 +1844,94 @@ class MainActivity : ComponentActivity() {
     private fun showSettings() {
         android.app.AlertDialog.Builder(this)
             .setTitle("设置")
-            .setItems(arrayOf("播放设置", "外观", "关于")) { _, which ->
+            .setItems(arrayOf("常规", "播放设置", "外观", "关于")) { _, which ->
                 when (which) {
-                    0 -> showPlaybackSettings()
-                    1 -> showAppearanceSettings()
-                    2 -> showAbout()
+                    0 -> showGeneralSettings()
+                    1 -> showPlaybackSettings()
+                    2 -> showAppearanceSettings()
+                    3 -> showAbout()
                 }
             }
             .setNegativeButton("关闭", null).showStyled()
     }
 
+    private fun showGeneralSettings() {
+        val prefs = getSharedPreferences("shengyu_settings", MODE_PRIVATE)
+        val root = prefs.getString("library_root_uri", null)?.let { Uri.parse(it) }
+        val mode = prefs.getString("library_import_mode", "manual") ?: "manual"
+        val rootName = root?.let { DocumentFile.fromTreeUri(this, it)?.name } ?: "尚未设置"
+        android.app.AlertDialog.Builder(this).setTitle("常规")
+            .setItems(arrayOf("作品库目录：$rootName", "导入方式：${if (mode == "auto") "自动导入新作品" else "扫描后手动选择"}", "扫描作品库")) { dialog, which ->
+                when (which) {
+                    0 -> { dialog.dismiss(); pickingLibraryRoot = true; pickFolder.launch(root) }
+                    1 -> {
+                        android.app.AlertDialog.Builder(this).setTitle("导入方式")
+                            .setSingleChoiceItems(arrayOf("自动导入新作品", "扫描后手动选择"), if (mode == "auto") 0 else 1) { d, selected ->
+                                prefs.edit().putString("library_import_mode", if (selected == 0) "auto" else "manual").apply()
+                                d.dismiss(); showGeneralSettings()
+                            }.setNegativeButton("返回", null).showStyled()
+                    }
+                    2 -> { dialog.dismiss(); if (root == null) { pickingLibraryRoot = true; pickFolder.launch(null) } else scanLibraryRoot(root) }
+                }
+            }.setNegativeButton("关闭", null).showStyled()
+    }
+
+    private data class ScannedWork(val folder: DocumentFile, val tracks: List<LocalTrack>, val arts: List<Uri>, val scripts: List<Uri>)
+
+    private fun scanLibraryRoot(uri: Uri) {
+        val root = DocumentFile.fromTreeUri(this, uri)
+        if (root == null) { Toast.makeText(this, "无法读取目录，请重新选择。", Toast.LENGTH_LONG).show(); return }
+        fun collect(folder: DocumentFile): ScannedWork {
+            val ts = mutableListOf<LocalTrack>(); val arts = mutableListOf<Uri>(); val scripts = mutableListOf<Uri>()
+            fun walk(dir: DocumentFile) { dir.listFiles().forEach { file ->
+                if (file.isDirectory) walk(file) else { val name = file.name ?: return@forEach
+                    when (name.substringAfterLast(".", "").lowercase()) {
+                        "mp3", "m4a", "aac", "wav", "ogg", "flac" -> ts.add(LocalTrack(name, file.uri))
+                        "jpg", "jpeg", "png", "webp", "gif" -> arts.add(file.uri)
+                        "txt", "lrc", "srt", "pdf" -> scripts.add(file.uri)
+                    }
+                }
+            } }
+            walk(folder); return ScannedWork(folder, ts, arts, scripts)
+        }
+        val discovered = root.listFiles().filter { it.isDirectory }.map { collect(it) }.filter { it.tracks.isNotEmpty() }
+        fun existing(item: ScannedWork) = works.firstOrNull { folderIdentity(it.folder) == folderIdentity(item.folder.uri) }
+        fun mediaSignature(uri: Uri): String {
+            val file = DocumentFile.fromSingleUri(this, uri)
+            val id = try { DocumentsContract.getDocumentId(uri) } catch (_: Exception) { uri.lastPathSegment ?: uri.toString() }
+            return "$id|${file?.name ?: ""}|${file?.length() ?: -1L}|${file?.lastModified() ?: -1L}"
+        }
+        fun changed(item: ScannedWork): Boolean {
+            val old = existing(item) ?: return false
+            return old.tracks.map { mediaSignature(it.uri) }.sorted() != item.tracks.map { mediaSignature(it.uri) }.sorted() ||
+                old.arts.map { mediaSignature(it) }.sorted() != item.arts.map { mediaSignature(it) }.sorted() ||
+                old.scripts.map { mediaSignature(it) }.sorted() != item.scripts.map { mediaSignature(it) }.sorted()
+        }
+        fun importScannedWork(item: ScannedWork) {
+            val old = existing(item)
+            val index = works.indexOfFirst { folderIdentity(it.folder) == folderIdentity(item.folder.uri) }
+            val w = LocalWork(item.folder.name ?: "未命名作品", item.folder.uri, item.tracks, item.arts, item.scripts, old?.cover ?: item.arts.firstOrNull(), old?.cv ?: "", old?.circle ?: "", old?.tags ?: emptyList(), old?.favorite ?: false, old?.importedAt ?: System.currentTimeMillis())
+            if (index >= 0) works[index] = w else works.add(w)
+        }
+        val newItems = discovered.filter { existing(it) == null }; val changedItems = discovered.filter { changed(it) }
+        val prefs = getSharedPreferences("shengyu_settings", MODE_PRIVATE)
+        if ((prefs.getString("library_import_mode", "manual") ?: "manual") == "auto") {
+            (newItems + changedItems).forEach { importScannedWork(it) }; saveWorks()
+            Toast.makeText(this, "扫描完成：新增 ${newItems.size} 部，更新 ${changedItems.size} 部", Toast.LENGTH_LONG).show(); renderLibrary(); return
+        }
+        val panel = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setPadding(dp(18), dp(8), dp(18), dp(8)) }
+        panel.addView(label("发现 ${discovered.size} 部作品 · 新增 ${newItems.size} 部 · 有变化 ${changedItems.size} 部", 14, 0xFF81798F.toInt()))
+        val scroll = ScrollView(this); val list = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
+        val rows = mutableListOf<Pair<CheckBox, ScannedWork>>()
+        discovered.forEach { item -> val old = existing(item); val isChanged = changed(item); val status = if (old == null) "新作品" else if (isChanged) "文件有变化" else "已导入"
+            val cb = CheckBox(this).apply { text = "${item.folder.name ?: "未命名作品"} · $status"; isChecked = old == null || isChanged; isEnabled = old == null || isChanged; setTextColor(0xFF3E3552.toInt()) }
+            list.addView(cb); rows.add(cb to item)
+        }
+        scroll.addView(list); panel.addView(scroll, LinearLayout.LayoutParams(-1, dp(350)))
+        android.app.AlertDialog.Builder(this).setTitle("扫描作品库").setView(panel)
+            .setPositiveButton("导入所选") { _, _ -> rows.filter { it.first.isChecked }.forEach { importScannedWork(it.second) }; saveWorks(); renderLibrary(); Toast.makeText(this, "作品库已更新", Toast.LENGTH_SHORT).show() }
+            .setNegativeButton("取消", null).showStyled()
+    }
     private fun showPlaybackSettings() {
         val prefs = getSharedPreferences("shengyu_settings", MODE_PRIVATE)
         val options = arrayOf("5 秒", "10 秒", "15 秒", "20 秒", "30 秒", "60 秒")
