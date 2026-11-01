@@ -507,14 +507,28 @@ class MainActivity : ComponentActivity() {
         updateArtworkFrameBackground(artFrame)
         content.addView(artFrame, artLp)
         art.setOnClickListener {
-            if (artworks.size > 1) {
-                currentArt = (currentArt + 1) % artworks.size
-                renderHome()
-            }
-        }
-        art.setOnLongClickListener {
             if (artworks.isNotEmpty()) showArtPreview(currentArt)
-            true
+        }
+        var bannerDownX = 0f
+        var bannerDownY = 0f
+        art.setOnTouchListener { _, event ->
+            when (event.actionMasked) {
+                MotionEvent.ACTION_DOWN -> {
+                    bannerDownX = event.x
+                    bannerDownY = event.y
+                }
+                MotionEvent.ACTION_UP -> {
+                    val dx = event.x - bannerDownX
+                    val dy = event.y - bannerDownY
+                    if (artworks.size > 1 && kotlin.math.abs(dx) > dp(45) && kotlin.math.abs(dx) > kotlin.math.abs(dy)) {
+                        currentArt = if (dx < 0) (currentArt + 1) % artworks.size
+                            else (currentArt - 1 + artworks.size) % artworks.size
+                        renderHome()
+                        return@setOnTouchListener true
+                    }
+                }
+            }
+            false
         }
         renderBottomControls()
     }
@@ -1565,12 +1579,16 @@ class MainActivity : ComponentActivity() {
         var index = startIndex.coerceIn(0, artworks.lastIndex)
         val dialog = Dialog(this)
         val frame = FrameLayout(this).apply { setBackgroundColor(0xFF17151D.toInt()) }
+        val viewer = FrameLayout(this)
         val image = ImageView(this).apply { scaleType = ImageView.ScaleType.MATRIX }
-        frame.addView(image, FrameLayout.LayoutParams(-1, -1))
+        viewer.addView(image, FrameLayout.LayoutParams(-1, -1))
+        frame.addView(viewer, FrameLayout.LayoutParams(-1, -1))
         val matrix = android.graphics.Matrix()
         val rect = android.graphics.RectF()
         var baseScale = 1f
         var currentScale = 1f
+        var gridVisible = false
+
         fun clampMatrix() {
             val drawable = image.drawable ?: return
             rect.set(0f, 0f, drawable.intrinsicWidth.toFloat(), drawable.intrinsicHeight.toFloat())
@@ -1586,9 +1604,12 @@ class MainActivity : ComponentActivity() {
             matrix.postTranslate(dx, dy)
             image.imageMatrix = matrix
         }
+
         fun displayImage() {
             try {
-                contentResolver.openInputStream(artworks[index])?.use { image.setImageBitmap(BitmapFactory.decodeStream(it)) }
+                contentResolver.openInputStream(artworks[index])?.use {
+                    image.setImageBitmap(BitmapFactory.decodeStream(it))
+                }
             } catch (_: Exception) { image.setImageDrawable(null) }
             image.post {
                 val drawable = image.drawable ?: return@post
@@ -1599,12 +1620,99 @@ class MainActivity : ComponentActivity() {
                 currentScale = 1f
                 matrix.reset()
                 matrix.setScale(baseScale, baseScale)
-                val scaledW = drawable.intrinsicWidth * baseScale
-                val scaledH = drawable.intrinsicHeight * baseScale
-                matrix.postTranslate((vw - scaledW) / 2f, (vh - scaledH) / 2f)
+                matrix.postTranslate(
+                    (vw - drawable.intrinsicWidth * baseScale) / 2f,
+                    (vh - drawable.intrinsicHeight * baseScale) / 2f
+                )
                 image.imageMatrix = matrix
             }
         }
+
+        fun showGrid() {
+            gridVisible = true
+            viewer.visibility = View.GONE
+            val gridPage = ScrollView(this)
+            val grid = android.widget.GridLayout(this).apply {
+                columnCount = 3
+                setPadding(dp(8), dp(52), dp(8), dp(12))
+            }
+            artworks.forEachIndexed { artIndex, uri ->
+                val cell = FrameLayout(this)
+                val thumb = ImageView(this).apply {
+                    scaleType = ImageView.ScaleType.CENTER_CROP
+                    try {
+                        contentResolver.openInputStream(uri)?.use { setImageBitmap(BitmapFactory.decodeStream(it)) }
+                    } catch (_: Exception) { }
+                    if (artIndex == index) {
+                        foreground = android.graphics.drawable.GradientDrawable().apply {
+                            setColor(0x22000000)
+                            setStroke(dp(3), 0xFFD8C5F2.toInt())
+                            cornerRadius = dp(10).toFloat()
+                        }
+                    }
+                }
+                cell.addView(thumb, FrameLayout.LayoutParams(-1, dp(124)))
+                cell.setOnClickListener {
+                    index = artIndex
+                    gridVisible = false
+                    frame.removeView(gridPage)
+                    viewer.visibility = View.VISIBLE
+                    displayImage()
+                }
+                val lp = android.widget.GridLayout.LayoutParams().apply {
+                    width = 0
+                    height = dp(132)
+                    columnSpec = android.widget.GridLayout.spec(android.widget.GridLayout.UNDEFINED, 1f)
+                    setMargins(dp(4), dp(4), dp(4), dp(4))
+                }
+                grid.addView(cell, lp)
+            }
+            gridPage.addView(grid, ScrollView.LayoutParams(-1, -2))
+            frame.addView(gridPage, FrameLayout.LayoutParams(-1, -1))
+            val header = TextView(this).apply {
+                text = "插图总览  ·  ${artworks.size} 张"
+                textSize = 16f
+                setTextColor(0xFFF8F5FA.toInt())
+                gravity = Gravity.CENTER_VERTICAL
+                setPadding(dp(18), 0, dp(18), 0)
+                setBackgroundColor(0xFF24212B.toInt())
+            }
+            frame.addView(header, FrameLayout.LayoutParams(-1, dp(48), Gravity.TOP))
+            val closeGrid = TextView(this).apply {
+                text = "×"
+                textSize = 30f
+                setTextColor(0xFFF8F5FA.toInt())
+                gravity = Gravity.CENTER
+                setOnClickListener {
+                    gridVisible = false
+                    frame.removeView(gridPage)
+                    frame.removeView(header)
+                    frame.removeView(this)
+                    viewer.visibility = View.VISIBLE
+                }
+            }
+            frame.addView(closeGrid, FrameLayout.LayoutParams(dp(48), dp(48), Gravity.TOP or Gravity.END))
+        }
+
+        val gridButton = TextView(this).apply {
+            text = "▦"
+            textSize = 25f
+            gravity = Gravity.CENTER
+            setTextColor(0xFFFFFFFF.toInt())
+            background = android.graphics.drawable.GradientDrawable().apply {
+                shape = android.graphics.drawable.GradientDrawable.OVAL
+                setColor(0xAA393441.toInt())
+                setStroke(dp(1), 0x66FFFFFF)
+            }
+            elevation = dp(6).toFloat()
+            contentDescription = "插图网格预览"
+            setOnClickListener { showGrid() }
+        }
+        viewer.addView(gridButton, FrameLayout.LayoutParams(dp(48), dp(48), Gravity.TOP or Gravity.END).apply {
+            topMargin = dp(16)
+            marginEnd = dp(16)
+        })
+
         var lastX = 0f
         var lastY = 0f
         var startX = 0f
@@ -1612,10 +1720,8 @@ class MainActivity : ComponentActivity() {
         var moved = false
         val scaleDetector = ScaleGestureDetector(this, object : ScaleGestureDetector.SimpleOnScaleGestureListener() {
             override fun onScale(detector: ScaleGestureDetector): Boolean {
-                val factor = detector.scaleFactor
-                val next = (currentScale * factor).coerceIn(1f, 5f)
-                val applied = next / currentScale
-                matrix.postScale(applied, applied, detector.focusX, detector.focusY)
+                val next = (currentScale * detector.scaleFactor).coerceIn(1f, 5f)
+                matrix.postScale(next / currentScale, next / currentScale, detector.focusX, detector.focusY)
                 currentScale = next
                 clampMatrix()
                 moved = true
@@ -1625,23 +1731,24 @@ class MainActivity : ComponentActivity() {
         image.setOnTouchListener { _, event ->
             scaleDetector.onTouchEvent(event)
             when (event.actionMasked) {
-                MotionEvent.ACTION_DOWN -> { lastX = event.x; lastY = event.y; startX = event.x; startY = event.y; moved = false }
+                MotionEvent.ACTION_DOWN -> {
+                    lastX = event.x; lastY = event.y; startX = event.x; startY = event.y; moved = false
+                }
                 MotionEvent.ACTION_POINTER_DOWN -> moved = true
                 MotionEvent.ACTION_MOVE -> {
                     if (!scaleDetector.isInProgress && event.pointerCount == 1 && currentScale > 1f) {
-                        val dx = event.x - lastX
-                        val dy = event.y - lastY
-                        matrix.postTranslate(dx, dy)
+                        matrix.postTranslate(event.x - lastX, event.y - lastY)
                         clampMatrix()
-                        moved = moved || kotlin.math.abs(dx) > 2f || kotlin.math.abs(dy) > 2f
+                        moved = moved || kotlin.math.abs(event.x - lastX) > 2f || kotlin.math.abs(event.y - lastY) > 2f
                     }
                     lastX = event.x; lastY = event.y
                 }
                 MotionEvent.ACTION_UP -> {
                     val dx = event.x - startX
                     val dy = event.y - startY
-                    if (!moved && kotlin.math.abs(dx) < dp(12) && kotlin.math.abs(dy) < dp(12) && currentScale <= 1.01f) dialog.dismiss()
-                    else if (currentScale <= 1.01f && kotlin.math.abs(dx) > dp(60) && kotlin.math.abs(dx) > kotlin.math.abs(dy) && artworks.size > 1) {
+                    if (!moved && kotlin.math.abs(dx) < dp(12) && kotlin.math.abs(dy) < dp(12) && currentScale <= 1.01f) {
+                        dialog.dismiss()
+                    } else if (currentScale <= 1.01f && kotlin.math.abs(dx) > dp(60) && kotlin.math.abs(dx) > kotlin.math.abs(dy) && artworks.size > 1) {
                         index = if (dx < 0) (index + 1) % artworks.size else (index - 1 + artworks.size) % artworks.size
                         displayImage()
                     }
