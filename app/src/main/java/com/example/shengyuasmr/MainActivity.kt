@@ -116,6 +116,12 @@ class MainActivity : ComponentActivity() {
     private var resumePosition = 0
     private var folderUri: Uri? = null
     private var pickingLibraryRoot = false
+    private val exportTagFile = registerForActivityResult(ActivityResultContracts.CreateDocument("application/json")) { uri ->
+        if (uri != null) exportTagCatalog(uri)
+    }
+    private val importTagFile = registerForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+        if (uri != null) importTagCatalog(uri)
+    }
     private val pickFolder = registerForActivityResult(ActivityResultContracts.OpenDocumentTree()) { uri ->
         if (uri != null) {
             try { contentResolver.takePersistableUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION) } catch (_: SecurityException) { }
@@ -624,32 +630,107 @@ class MainActivity : ComponentActivity() {
             if (i == 4) showTagFilter() else { libraryFilter = choices[i]; appliedTags.clear(); getSharedPreferences("shengyu_library", MODE_PRIVATE).edit().putString("library_filter", libraryFilter).putString("applied_filter_tags", "[]").apply(); renderLibrary() }
         }.setNegativeButton("取消", null).showStyled()
     }
-    private fun showTagFilter() {
+    private fun loadTagCatalog(): LinkedHashMap<String, MutableList<String>> {
         val prefs = getSharedPreferences("shengyu_library", MODE_PRIVATE)
-        val catalog = linkedMapOf<String, MutableList<String>>()
         val names = listOf("CV", "社团", "自定义")
+        val catalog = linkedMapOf<String, MutableList<String>>()
         val saved = prefs.getString("tag_catalog", null)
         if (saved != null) {
             try {
                 val json = JSONObject(saved)
                 names.forEach { name ->
                     val arr = json.optJSONArray(name) ?: JSONArray()
-                    catalog[name] = (0 until arr.length()).map { arr.optString(it).trim() }.filter { it.isNotBlank() }.distinct().toMutableList()
+                    catalog[name] = (0 until arr.length()).map { arr.optString(it).trim() }
+                        .filter { it.isNotBlank() }.distinct().toMutableList()
                 }
-            } catch (_: Exception) { }
+            } catch (_: Exception) { catalog.clear() }
         }
         if (catalog.isEmpty()) {
-            catalog["CV"] = works.flatMap { it.cv.split(",", "，", "、") }.map { it.trim() }.filter { it.isNotBlank() }.distinct().toMutableList()
-            catalog["社团"] = works.flatMap { it.circle.split(",", "，", "、") }.map { it.trim() }.filter { it.isNotBlank() }.distinct().toMutableList()
-            catalog["自定义"] = works.flatMap { it.tags }.map { it.trim() }.filter { it.isNotBlank() }.distinct().toMutableList()
+            catalog["CV"] = works.flatMap { it.cv.split(",", "，", "、") }.map { it.trim() }
+                .filter { it.isNotBlank() }.distinct().toMutableList()
+            catalog["社团"] = works.flatMap { it.circle.split(",", "，", "、") }.map { it.trim() }
+                .filter { it.isNotBlank() }.distinct().toMutableList()
+            catalog["自定义"] = works.flatMap { it.tags }.map { it.trim() }
+                .filter { it.isNotBlank() }.distinct().toMutableList()
         }
         names.forEach { if (catalog[it] == null) catalog[it] = mutableListOf() }
-        fun saveCatalog() {
-            val json = JSONObject()
-            catalog.forEach { (name, tags) -> json.put(name, JSONArray(tags)) }
-            prefs.edit().putString("tag_catalog", json.toString()).apply()
+        return catalog
+    }
+
+    private fun saveTagCatalog(catalog: Map<String, List<String>>) {
+        val json = JSONObject()
+        listOf("CV", "社团", "自定义").forEach { name ->
+            json.put(name, JSONArray(catalog[name] ?: emptyList<String>()))
         }
-        saveCatalog()
+        getSharedPreferences("shengyu_library", MODE_PRIVATE).edit()
+            .putString("tag_catalog", json.toString()).apply()
+    }
+
+    private fun exportTagCatalog(uri: Uri) {
+        try {
+            val catalog = loadTagCatalog()
+            val tags = JSONObject()
+            listOf("CV", "社团", "自定义").forEach { name ->
+                tags.put(name, JSONArray(catalog[name] ?: emptyList<String>()))
+            }
+            val document = JSONObject().put("app", "声屿 ASMR").put("formatVersion", 1)
+                .put("createdAt", System.currentTimeMillis()).put("tags", tags)
+            val output = contentResolver.openOutputStream(uri, "wt")
+                ?: throw IllegalStateException("无法创建导出文件")
+            output.use { it.write(document.toString(2).toByteArray(Charsets.UTF_8)) }
+            val total = catalog.values.sumOf { it.size }
+            Toast.makeText(this, "标签已导出，共 $total 个", Toast.LENGTH_LONG).show()
+        } catch (e: Exception) {
+            Toast.makeText(this, "导出失败：${e.message ?: "无法写入文件"}", Toast.LENGTH_LONG).show()
+        }
+    }
+
+    private fun importTagCatalog(uri: Uri) {
+        try {
+            val input = contentResolver.openInputStream(uri)
+                ?: throw IllegalStateException("无法读取所选文件")
+            val bytes = input.use { it.readBytes() }
+            if (bytes.isEmpty() || bytes.size > 1024 * 1024) {
+                throw IllegalArgumentException("文件为空或超过 1 MB")
+            }
+            val document = JSONObject(String(bytes, Charsets.UTF_8).removePrefix("\uFEFF"))
+            if (document.optInt("formatVersion", -1) != 1) {
+                throw IllegalArgumentException("不支持的标签文件版本")
+            }
+            val source = document.optJSONObject("tags")
+                ?: throw IllegalArgumentException("文件中没有标签数据")
+            val imported = linkedMapOf<String, List<String>>()
+            listOf("CV", "社团", "自定义").forEach { name ->
+                val array = source.optJSONArray(name) ?: JSONArray()
+                imported[name] = (0 until array.length()).map { array.optString(it).trim() }
+                    .filter { it.isNotBlank() }.distinct()
+            }
+            val incomingCount = imported.values.sumOf { it.size }
+            if (incomingCount == 0) throw IllegalArgumentException("文件中没有可导入的标签")
+            val existing = loadTagCatalog()
+            var addedCount = 0
+            imported.forEach { (group, values) ->
+                val bucket = existing[group] ?: mutableListOf<String>().also { existing[group] = it }
+                values.forEach { value -> if (value !in bucket) { bucket.add(value); addedCount++ } }
+            }
+            val groupSummary = listOf("CV", "社团", "自定义").joinToString("、") { group ->
+                "$group ${imported[group]?.size ?: 0} 个"
+            }
+            android.app.AlertDialog.Builder(this).setTitle("导入标签")
+                .setMessage("文件包含：$groupSummary\n\n导入会与当前标签目录合并，重复标签自动跳过；不会修改任何作品资料。")
+                .setPositiveButton("合并导入") { _, _ ->
+                    saveTagCatalog(existing)
+                    Toast.makeText(this, "导入完成，新增 $addedCount 个标签", Toast.LENGTH_LONG).show()
+                }.setNegativeButton("取消", null).showStyled()
+        } catch (e: Exception) {
+            Toast.makeText(this, "导入失败：${e.message ?: "文件格式不正确"}", Toast.LENGTH_LONG).show()
+        }
+    }
+    private fun showTagFilter() {
+        val prefs = getSharedPreferences("shengyu_library", MODE_PRIVATE)
+        val names = listOf("CV", "社团", "自定义")
+        val catalog = loadTagCatalog()
+        fun saveCatalog() = saveTagCatalog(catalog)
         val selected = appliedTags.toMutableSet()
         val collapsed = mutableSetOf<String>()
         var editing = false
@@ -1872,7 +1953,13 @@ class MainActivity : ComponentActivity() {
         val mode = prefs.getString("library_import_mode", "manual") ?: "manual"
         val rootName = root?.let { DocumentFile.fromTreeUri(this, it)?.name } ?: "尚未设置"
         android.app.AlertDialog.Builder(this).setTitle("常规")
-            .setItems(arrayOf("作品库目录：$rootName", "导入方式：${if (mode == "auto") "自动导入新作品" else "扫描后手动选择"}", "扫描作品库")) { dialog, which ->
+            .setItems(arrayOf(
+                "作品库目录：$rootName",
+                "导入方式：${if (mode == "auto") "自动导入新作品" else "扫描后手动选择"}",
+                "扫描作品库",
+                "导出标签",
+                "导入标签"
+            )) { dialog, which ->
                 when (which) {
                     0 -> { dialog.dismiss(); pickingLibraryRoot = true; pickFolder.launch(root) }
                     1 -> {
@@ -1883,6 +1970,8 @@ class MainActivity : ComponentActivity() {
                             }.setNegativeButton("返回", null).showStyled()
                     }
                     2 -> { dialog.dismiss(); if (root == null) { pickingLibraryRoot = true; pickFolder.launch(null) } else scanLibraryRoot(root) }
+                    3 -> { dialog.dismiss(); exportTagFile.launch("shengyu-tags.json") }
+                    4 -> { dialog.dismiss(); importTagFile.launch(arrayOf("application/json", "text/json", "text/plain")) }
                 }
             }.setNegativeButton("关闭", null).showStyled()
     }
@@ -2035,14 +2124,84 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun showAbout() {
-        val message = "声屿 ASMR\n本地音频与台本播放器\n\n作品和播放记录保存在你的设备上。"
-        android.app.AlertDialog.Builder(this)
-            .setTitle("关于声屿")
-            .setMessage(message)
+        val scroll = ScrollView(this).apply {
+            isFillViewport = true
+            setPadding(dp(20), dp(8), dp(20), dp(12))
+        }
+        val guide = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
+        fun section(title: String, body: String) {
+            guide.addView(label(title, 15, themeColor(0xFF51435F.toInt()), true).apply {
+                setPadding(0, dp(14), 0, dp(5))
+            })
+            guide.addView(TextView(this).apply {
+                text = body
+                textSize = 13.5f
+                setTextColor(themeColor(0xFF625A6B.toInt()))
+                setLineSpacing(dp(4).toFloat(), 1.04f)
+                setPadding(0, 0, 0, dp(4))
+            })
+        }
+
+        guide.addView(label("声屿 ASMR", 21, themeColor(0xFF51435F.toInt()), true))
+        guide.addView(label("本地音频、插画与台本播放器 · 详细使用说明", 12, themeColor(0xFF91869B.toInt())).apply {
+            setPadding(0, dp(3), 0, dp(6))
+        })
+
+        section("一、作品库与首次导入",
+            "声屿以“作品”为单位管理本地内容。一个作品文件夹可以同时包含多条音轨、多张插画和多份台本。\n\n" +
+            "单个作品导入：在作品库右下角点击“+”，选择作品文件夹。扫描后会列出音频、插画和台本，勾选想加入的文件，再点击“导入所选文件”。\n\n" +
+            "支持的音频格式：MP3、M4A、AAC、WAV、OGG、FLAC。插画格式：JPG、JPEG、PNG、WEBP、GIF。台本格式：TXT、LRC、SRT、PDF。"
+        )
+
+        section("二、批量扫描作品库",
+            "打开“设置 → 常规”，先设置“作品库目录”。建议把每部作品分别放在这个目录下的一个子文件夹中；扫描时会逐个检查子文件夹，并递归读取其中的音频、插画和台本。\n\n" +
+            "自动导入新作品：扫描时自动加入新作品，并更新检测到文件变化的已导入作品。\n" +
+            "扫描后手动选择：扫描结果会标记为新作品、文件有变化或已导入；新增和有变化的作品默认勾选，未变化的作品不会重复导入。检查后点击“导入所选”。\n\n" +
+            "单个文件夹导入和作品菜单里的“重新扫描并更新”仍可单独使用。更新时会尽量保留已填写的作品信息、收藏状态和标签。"
+        )
+
+        section("三、作品库分类与作品管理",
+            "点击作品库顶部的分类名称，可以切换“全部作品”“最近播放”“导入时间”“收藏”和“标签”。选择“标签”后，可以组合选择标签并应用筛选。\n\n" +
+            "点击作品右侧的三点菜单，可以编辑作品名称、封面、CV、社团和自定义标签，也可以收藏/取消收藏、重新扫描并更新，或从作品库删除。\n\n" +
+            "“从作品库删除”只移除 App 中保存的作品条目，不会删除原文件夹里的音频、插画或台本。"
+        )
+
+        section("四、标签管理与备份",
+            "标签分为 CV、社团、自定义三组。进入作品库分类中的“标签”，点击“编辑”后可以添加标签；编辑状态下长按标签，可以调整顺序或从标签面板目录中删除。\n\n" +
+            "从标签面板目录删除标签，不会清除作品资料里已经保存的 CV、社团或自定义标签。\n\n" +
+            "设置 → 常规 → 导出标签：会生成 JSON 标签文件，可保存到手机或其他位置。导入标签：选择之前导出的 JSON 文件后，会把标签合并到当前目录；重复项自动跳过，不会覆盖现有标签，也不会修改作品资料。\n\n" +
+            "标签备份只包含三组标签目录，不包含作品、音频文件、插画、台本或每部作品的其他资料。"
+        )
+
+        section("五、播放与音轨列表",
+            "在作品库点击作品即可进入播放页。顶部显示作品名称、音轨/插画/台本数量和当前音轨名称。\n\n" +
+            "底部从左到右依次是：音轨列表、回退、播放/暂停、前进、台本。进度条可以拖动定位，并显示当前时间和总时长。回退和前进秒数可在“设置 → 播放”中选择 5、10、15、20、30 或 60 秒。\n\n" +
+            "点击“音轨列表”可以查看音轨和台本。点击音轨可直接播放；长按音轨右侧的拖动把手并拖到目标位置，可以调整音轨顺序，调整结果会保存。当前播放音轨会高亮显示，长标题会自动换行显示。"
+        )
+
+        section("六、插画与台本",
+            "轻触播放页中的插画可以打开预览。预览中支持放大、缩小和拖动查看；作品包含多张插画时，可以左右滑动切换，也可以使用缩略图网格选择。\n\n" +
+            "点击底部“台本”进入阅读页面。支持 TXT、LRC、SRT 和 PDF；如果作品导入了多份台本，可以通过音轨列表面板的“台本”标签选择。阅读台本时，底部播放控制仍可使用，音频可以继续播放。"
+        )
+
+        section("七、定时停止与外观",
+            "播放页顶部的时钟图标用于设置定时停止，可设置停止时间，也可以设为默认时长；定时结束后 App 会暂停播放。\n\n" +
+            "在“设置 → 外观”中可以切换六套浅色主题：薰衣草紫、樱花粉、天空蓝、薄荷绿、抹茶绿和奶油杏。选择后立即生效，并会记住上次选择。"
+        )
+
+        section("八、数据与使用建议",
+            "作品列表、标签目录、主题选择和播放进度保存在本机应用数据中。导入作品时，App 使用所选文件夹的访问授权读取文件；请不要随意移动或删除原始文件，否则对应内容可能无法打开。\n\n" +
+            "更换手机或重装 App 前，建议另外备份原始作品文件夹。标签 JSON 只能备份标签目录，不能代替作品文件和完整作品库备份。"
+        )
+
+        scroll.addView(guide)
+        val dialog = android.app.AlertDialog.Builder(this)
+            .setTitle("关于声屿 · 使用说明")
+            .setView(scroll)
             .setPositiveButton("知道了", null)
             .showStyled()
+        dialog.window?.setLayout(-1, (resources.displayMetrics.heightPixels * 0.82f).toInt())
     }
-
     private fun showSleepTimer() {
         val prefs = getSharedPreferences("shengyu_settings", MODE_PRIVATE)
         val defaultEnabled = prefs.getBoolean("sleep_timer_default_enabled", false)
