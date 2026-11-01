@@ -5,6 +5,7 @@ import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.PendingIntent
 import android.content.Intent
+import android.content.res.Configuration
 import android.content.pm.PackageManager
 import android.graphics.BitmapFactory
 import android.graphics.Bitmap
@@ -140,6 +141,7 @@ class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        applySystemBars()
         buildShell()
         val libraryPrefs = getSharedPreferences("shengyu_library", MODE_PRIVATE)
         libraryFilter = libraryPrefs.getString("library_filter", "全部作品") ?: "全部作品"
@@ -169,6 +171,14 @@ class MainActivity : ComponentActivity() {
         renderLibrary()
     }
 
+    override fun onConfigurationChanged(newConfig: Configuration) {
+        super.onConfigurationChanged(newConfig)
+        // Handle Android's system light/dark switch without recreating the Activity.
+        // Keeping this Activity alive also keeps the current MediaPlayer instance alive.
+        applySystemBars()
+        if (::root.isInitialized) refreshThemeScreen()
+    }
+
     private data class ThemeOption(val id: String, val name: String, val hue: Float)
 
     private val themeOptions = listOf(
@@ -186,7 +196,82 @@ class MainActivity : ComponentActivity() {
         return if (themeOptions.any { it.id == saved }) saved else "lavender"
     }
 
-    private fun themeColor(color: Int): Int = themeColorFor(color, selectedThemeId())
+    private fun appearanceMode(): String {
+        val saved = getSharedPreferences("shengyu_settings", MODE_PRIVATE)
+            .getString("app_appearance_mode", "light") ?: "light"
+        return if (saved in setOf("light", "dark", "system")) saved else "light"
+    }
+
+    private fun isNightMode(): Boolean = when (appearanceMode()) {
+        "dark" -> true
+        "system" -> (resources.configuration.uiMode and Configuration.UI_MODE_NIGHT_MASK) == Configuration.UI_MODE_NIGHT_YES
+        else -> false
+    }
+
+    private fun themeColor(color: Int): Int {
+        val themed = themeColorFor(color, selectedThemeId())
+        return if (isNightMode()) nightColorFor(themed) else themed
+    }
+
+    private fun nightColorFor(color: Int): Int {
+        val alpha = android.graphics.Color.alpha(color)
+        if (alpha == 0) return color
+        val hsv = FloatArray(3)
+        android.graphics.Color.colorToHSV(color, hsv)
+        val saturation = hsv[1]
+        val value = hsv[2]
+        // Keep transparent pixels, pure whites, neutral grays and deep image-preview surfaces intact.
+        if (saturation < 0.025f || value < 0.22f) return color
+
+        val mapped = when {
+            value >= 0.985f -> 0xFF302C38.toInt()  // Dialogs and elevated surfaces
+            value >= 0.965f -> 0xFF26232D.toInt()  // Main page background
+            value >= 0.925f -> {
+                if (saturation > 0.14f) {
+                    android.graphics.Color.HSVToColor(floatArrayOf(hsv[0], 0.34f, 0.42f))
+                } else 0xFF3B3545.toInt()
+            }
+            value >= 0.86f -> {
+                if (saturation > 0.16f) {
+                    android.graphics.Color.HSVToColor(floatArrayOf(hsv[0], 0.30f, 0.48f))
+                } else 0xFF45404D.toInt()
+            }
+            value >= 0.70f -> {
+                if (saturation > 0.18f) {
+                    android.graphics.Color.HSVToColor(floatArrayOf(hsv[0], saturation.coerceAtMost(0.42f), 0.86f))
+                } else 0xFFB8AFC2.toInt()
+            }
+            value >= 0.43f -> {
+                if (saturation > 0.24f) {
+                    android.graphics.Color.HSVToColor(floatArrayOf(hsv[0], saturation.coerceAtMost(0.36f), 0.90f))
+                } else 0xFFB8AFC2.toInt()
+            }
+            else -> 0xFFE8E2EF.toInt() // Primary text
+        }
+        return android.graphics.Color.argb(
+            alpha,
+            android.graphics.Color.red(mapped),
+            android.graphics.Color.green(mapped),
+            android.graphics.Color.blue(mapped)
+        )
+    }
+
+    private fun applySystemBars() {
+        val night = isNightMode()
+        val barColor = if (night) 0xFF26232D.toInt() else 0xFFF7F4FB.toInt()
+        window.statusBarColor = barColor
+        window.navigationBarColor = barColor
+        window.setBackgroundDrawable(android.graphics.drawable.ColorDrawable(barColor))
+
+        var flags = window.decorView.systemUiVisibility
+        val lightStatusFlag = View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR
+        flags = if (night) flags and lightStatusFlag.inv() else flags or lightStatusFlag
+        if (android.os.Build.VERSION.SDK_INT >= 26) {
+            val lightNavigationFlag = View.SYSTEM_UI_FLAG_LIGHT_NAVIGATION_BAR
+            flags = if (night) flags and lightNavigationFlag.inv() else flags or lightNavigationFlag
+        }
+        window.decorView.systemUiVisibility = flags
+    }
 
     private fun themeColorFor(color: Int, themeId: String): Int {
         if (themeId == "lavender") return color
@@ -609,10 +694,13 @@ class MainActivity : ComponentActivity() {
         }
         if (sample !== bitmap && !sample.isRecycled) sample.recycle()
         if (count == 0L) return themeColor(0x55DCCFE8.toInt())
-        val r = ((red / count) * 0.24 + 255 * 0.76).toInt().coerceIn(0, 255)
-        val g = ((green / count) * 0.24 + 255 * 0.76).toInt().coerceIn(0, 255)
-        val b = ((blue / count) * 0.24 + 255 * 0.76).toInt().coerceIn(0, 255)
-        return android.graphics.Color.argb(125, r, g, b)
+        val night = isNightMode()
+        val blend = if (night) 0.16 else 0.24
+        val base = if (night) 40 else 255
+        val r = ((red / count) * blend + base * (1.0 - blend)).toInt().coerceIn(0, 255)
+        val g = ((green / count) * blend + base * (1.0 - blend)).toInt().coerceIn(0, 255)
+        val b = ((blue / count) * blend + base * (1.0 - blend)).toInt().coerceIn(0, 255)
+        return android.graphics.Color.argb(if (night) 150 else 125, r, g, b)
     }
 
     private fun filteredWorks(): List<LocalWork> {
@@ -743,7 +831,7 @@ class MainActivity : ComponentActivity() {
         panel.addView(View(this).apply { background = android.graphics.drawable.GradientDrawable().apply { setColor(themeColor(0xFFD9D0E2.toInt())); cornerRadius = dp(3).toFloat() } }, LinearLayout.LayoutParams(dp(38), dp(5)).apply { gravity = Gravity.CENTER; bottomMargin = dp(10) })
         panel.addView(label("标签筛选", 18, themeColor(0xFF51435F.toInt()), true).apply { setPadding(0, 0, 0, dp(8)) })
         val top = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL }
-        val search = EditText(this).apply { hint = "搜索标签"; setSingleLine(true); textSize = 14f; setPadding(dp(12), 0, dp(12), 0); background = android.graphics.drawable.GradientDrawable().apply { setColor(themeColor(0xFFF0ECF4.toInt())); cornerRadius = dp(13).toFloat() } }
+        val search = EditText(this).apply { hint = "搜索标签"; setSingleLine(true); textSize = 14f; setTextColor(themeColor(0xFF51435F.toInt())); setHintTextColor(themeColor(0xFF8A7E95.toInt())); setPadding(dp(12), 0, dp(12), 0); background = android.graphics.drawable.GradientDrawable().apply { setColor(themeColor(0xFFF0ECF4.toInt())); cornerRadius = dp(13).toFloat() } }
         top.addView(search, LinearLayout.LayoutParams(0, dp(48), 1f))
         val editButton = button("编辑").apply { textSize = 12f }
         top.addView(editButton, LinearLayout.LayoutParams(dp(64), dp(44)))
@@ -769,6 +857,8 @@ class MainActivity : ComponentActivity() {
                         val input = EditText(this@MainActivity).apply {
                             hint = "输入新的${group}标签"
                             setSingleLine(true)
+                            setTextColor(themeColor(0xFF51435F.toInt()))
+                            setHintTextColor(themeColor(0xFF8A7E95.toInt()))
                             backgroundTintList = android.content.res.ColorStateList.valueOf(themeColor(0xFF9A82B3.toInt()))
                         }
                         android.app.AlertDialog.Builder(this@MainActivity).setTitle("新增${group}标签").setView(input)
@@ -860,6 +950,8 @@ class MainActivity : ComponentActivity() {
         val box = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setPadding(dp(18), dp(12), dp(18), dp(8)) }
         fun field(hint: String, value: String) = EditText(this).apply {
             this.hint = hint; setText(value); setSingleLine(true); textSize = 14f
+            setTextColor(themeColor(0xFF51435F.toInt()))
+            setHintTextColor(themeColor(0xFF8A7E95.toInt()))
             setPadding(dp(12), dp(10), dp(12), dp(10))
             background = android.graphics.drawable.GradientDrawable().apply { setColor(themeColor(0xFFF1ECF5.toInt())); cornerRadius = dp(12).toFloat() }
         }
@@ -2069,11 +2161,55 @@ class MainActivity : ComponentActivity() {
             setPadding(dp(22), dp(6), dp(22), dp(8))
         }
 
-        panel.addView(label("主题颜色", 13, themeColor(0xFF81798F.toInt()), true).apply {
-            setPadding(0, dp(4), 0, dp(10))
+        var appearanceDialog: android.app.AlertDialog? = null
+
+        panel.addView(label("显示模式", 13, themeColor(0xFF81798F.toInt()), true).apply {
+            setPadding(0, dp(4), 0, dp(8))
         })
 
-        var appearanceDialog: android.app.AlertDialog? = null
+        val modeRow = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER
+        }
+        val modeOptions = listOf(
+            "light" to "浅色",
+            "dark" to "夜间",
+            "system" to "跟随系统"
+        )
+        modeOptions.forEach { (modeId, modeName) ->
+            val selected = modeId == appearanceMode()
+            val item = TextView(this).apply {
+                text = modeName
+                textSize = 12f
+                gravity = Gravity.CENTER
+                setTextColor(themeColor(if (selected) 0xFF51435F.toInt() else 0xFF756681.toInt()))
+                background = android.graphics.drawable.GradientDrawable().apply {
+                    cornerRadius = dp(12).toFloat()
+                    setColor(themeColor(if (selected) 0xFFEDE5F2.toInt() else 0xFFFAF8FC.toInt()))
+                    setStroke(dp(1), themeColor(if (selected) 0xFFB7A1CB.toInt() else 0xFFEAE3F0.toInt()))
+                }
+                setOnClickListener {
+                    prefs.edit().putString("app_appearance_mode", modeId).apply()
+                    appearanceDialog?.dismiss()
+                    applySystemBars()
+                    refreshThemeScreen()
+                    showAppearanceSettings()
+                }
+            }
+            modeRow.addView(item, LinearLayout.LayoutParams(0, dp(42), 1f).apply {
+                marginStart = dp(3)
+                marginEnd = dp(3)
+            })
+        }
+        panel.addView(modeRow, LinearLayout.LayoutParams(-1, dp(44)))
+        panel.addView(label("夜间模式采用「月夜紫」配色；跟随系统会读取 Android 的深色模式设置。", 11, themeColor(0xFF9A8EA4.toInt())).apply {
+            setPadding(0, dp(5), 0, dp(14))
+        })
+
+        panel.addView(label("主题颜色", 13, themeColor(0xFF81798F.toInt()), true).apply {
+            setPadding(0, dp(2), 0, dp(10))
+        })
+
         val swatches = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER
@@ -2098,6 +2234,7 @@ class MainActivity : ComponentActivity() {
                 setOnClickListener {
                     prefs.edit().putString("app_theme", option.id).apply()
                     appearanceDialog?.dismiss()
+                    applySystemBars()
                     refreshThemeScreen()
                     showAppearanceSettings()
                 }
@@ -2111,9 +2248,14 @@ class MainActivity : ComponentActivity() {
         panel.addView(swatches, LinearLayout.LayoutParams(-1, dp(48)))
 
         val currentName = themeOptions.firstOrNull { it.id == selectedThemeId() }?.name ?: "薰衣草紫"
-        panel.addView(label("当前：$currentName", 11, themeColor(0xFF9A8EA4.toInt())).apply {
+        val currentModeName = when (appearanceMode()) {
+            "dark" -> "夜间模式"
+            "system" -> "跟随系统"
+            else -> "浅色模式"
+        }
+        panel.addView(label("当前：$currentModeName · $currentName", 11, themeColor(0xFF9A8EA4.toInt())).apply {
             gravity = Gravity.CENTER
-            setPadding(0, dp(2), 0, dp(12))
+            setPadding(0, dp(3), 0, dp(8))
         })
 
         appearanceDialog = android.app.AlertDialog.Builder(this)
@@ -2186,7 +2328,7 @@ class MainActivity : ComponentActivity() {
 
         section("七、定时停止与外观",
             "播放页顶部的时钟图标用于设置定时停止，可设置停止时间，也可以设为默认时长；定时结束后 App 会暂停播放。\n\n" +
-            "在“设置 → 外观”中可以切换六套浅色主题：薰衣草紫、樱花粉、天空蓝、薄荷绿、抹茶绿和奶油杏。选择后立即生效，并会记住上次选择。"
+            "在“设置 → 外观”中可以选择浅色模式、夜间模式（月夜紫）或跟随 Android 系统；也可以在六套主题颜色之间切换：薰衣草紫、樱花粉、天空蓝、薄荷绿、抹茶绿和奶油杏。设置会立即生效并自动保存。跟随系统时，切换 Android 深色模式不会重启播放器或打断当前音频。"
         )
 
         section("八、数据与使用建议",
@@ -2394,12 +2536,19 @@ class MainActivity : ComponentActivity() {
             dialog.getButton(android.app.AlertDialog.BUTTON_POSITIVE)?.setTextColor(themeColor(0xFF806B9A.toInt()))
             dialog.getButton(android.app.AlertDialog.BUTTON_NEGATIVE)?.setTextColor(themeColor(0xFF806B9A.toInt()))
             dialog.getButton(android.app.AlertDialog.BUTTON_NEUTRAL)?.setTextColor(themeColor(0xFF806B9A.toInt()))
+            dialog.findViewById<TextView>(android.R.id.message)?.setTextColor(themeColor(0xFF51435F.toInt()))
             dialog.listView?.apply {
                 setBackgroundColor(themeColor(0xFFFAF8FC.toInt()))
                 divider = null
                 dividerHeight = 0
+                post {
+                    for (index in 0 until childCount) {
+                        (getChildAt(index) as? TextView)?.setTextColor(themeColor(0xFF51435F.toInt()))
+                    }
+                }
             }
             val titleView = dialog.findViewById<TextView>(android.R.id.title)
+            titleView?.setTextColor(themeColor(0xFF51435F.toInt()))
             val titleContainer = titleView?.parent as? android.view.ViewGroup
             val topPanel = titleContainer?.parent as? android.view.ViewGroup
             if (titleContainer != null && topPanel != null && titleContainer.parent === topPanel) {
