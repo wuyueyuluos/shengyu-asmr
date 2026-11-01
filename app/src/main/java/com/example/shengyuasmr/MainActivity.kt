@@ -1667,7 +1667,7 @@ class MainActivity : ComponentActivity() {
                 }
                 grid.addView(cell, lp)
             }
-            gridPage.addView(grid, ScrollView.LayoutParams(-1, -2))
+            gridPage.addView(grid, FrameLayout.LayoutParams(-1, -2))
             frame.addView(gridPage, FrameLayout.LayoutParams(-1, -1))
             val header = TextView(this).apply {
                 text = "插图总览  ·  ${artworks.size} 张"
