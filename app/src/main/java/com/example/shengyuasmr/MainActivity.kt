@@ -713,7 +713,10 @@ class MainActivity : ComponentActivity() {
         val night = isNightMode()
         // Derive the surround from the selected accent hue so every theme gets
         // its own coordinated soft surface (lavender, sakura, sky, mint, matcha, apricot).
-        val accentHue = themeOptions.firstOrNull { it.id == selectedThemeId() }?.hue ?: 270f
+        // Night mode is a standalone moonlit-purple theme. Do not let the last
+        // selected daytime accent (green, blue, apricot, etc.) tint the artwork surround.
+        val accentHue = if (night) 270f
+            else themeOptions.firstOrNull { it.id == selectedThemeId() }?.hue ?: 270f
         val base = if (night) {
             android.graphics.Color.HSVToColor(floatArrayOf(accentHue, 0.12f, 0.20f))
         } else {
