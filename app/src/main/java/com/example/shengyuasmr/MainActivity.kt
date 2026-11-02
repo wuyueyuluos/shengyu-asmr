@@ -709,11 +709,16 @@ class MainActivity : ComponentActivity() {
         if (sample !== bitmap && !sample.isRecycled) sample.recycle()
         if (count == 0L) return themeColor(0x55DCCFE8.toInt())
         val night = isNightMode()
-        val blend = 0.10
-        val base = 38
-        val r = ((red / count) * blend + base * (1.0 - blend)).toInt().coerceIn(0, 255)
-        val g = ((green / count) * blend + base * (1.0 - blend)).toInt().coerceIn(0, 255)
-        val b = ((blue / count) * blend + base * (1.0 - blend)).toInt().coerceIn(0, 255)
+        // Keep the artwork surround aligned with the app's plum-gray night surfaces.
+        // A restrained artwork tint adds atmosphere without letting muddy image averages
+        // turn the whole frame brown or gray.
+        val blend = if (night) 0.08 else 0.10
+        val baseR = if (night) 48 else 38
+        val baseG = if (night) 44 else 38
+        val baseB = if (night) 56 else 38
+        val r = ((red / count) * blend + baseR * (1.0 - blend)).toInt().coerceIn(0, 255)
+        val g = ((green / count) * blend + baseG * (1.0 - blend)).toInt().coerceIn(0, 255)
+        val b = ((blue / count) * blend + baseB * (1.0 - blend)).toInt().coerceIn(0, 255)
         // Opaque in night mode so the large surround cannot turn gray against a light window.
         return android.graphics.Color.argb(if (night) 255 else 125, r, g, b)
     }
