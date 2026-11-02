@@ -1286,11 +1286,55 @@ class MainActivity : ComponentActivity() {
                 if (tracks.isEmpty()) list.addView(label("这个作品没有音轨", 13, themeColor(0xFF9A8EA4.toInt())).apply { setPadding(dp(12), dp(18), 0, dp(18)) })
             } else {
                 scripts.forEachIndexed { i, uri ->
-                    val row = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL }
-                    row.addView(TextView(this).apply { text = "%02d".format(i + 1) + ".  " + (uri.lastPathSegment?.substringAfterLast("/") ?: ("台本 " + (i + 1))); textSize = 15f; gravity = Gravity.CENTER_VERTICAL; setPadding(dp(16), 0, dp(6), 0); setTextColor(themeColor(0xFF494452.toInt())); maxLines = 1; ellipsize = android.text.TextUtils.TruncateAt.MIDDLE; setOnClickListener { selectedScriptIndex = i; dialog.dismiss(); currentScreen = returnScreen; showScript = true; loadScript() } }, LinearLayout.LayoutParams(0, dp(66), 1f))
-                    row.addView(TextView(this).apply { text = "▤"; textSize = 18f; gravity = Gravity.CENTER; setTextColor(themeColor(0xFF9993A7.toInt())); setOnClickListener { selectedScriptIndex = i; dialog.dismiss(); currentScreen = returnScreen; showScript = true; loadScript() } }, LinearLayout.LayoutParams(dp(42), dp(60)))
-                    row.addView(TextView(this).apply { text = "⠿"; textSize = 22f; gravity = Gravity.CENTER; setTextColor(themeColor(0xFF9487A1.toInt())); setOnLongClickListener { v -> v.startDragAndDrop(android.content.ClipData.newPlainText("script-index", i.toString()), View.DragShadowBuilder(v), i, 0); true }; setOnDragListener { _, e -> if (e.action == android.view.DragEvent.ACTION_DROP) { val from = e.localState as? Int; if (from != null && from in scripts.indices && from != i) { val moved = scripts.removeAt(from); scripts.add(i, moved); val wi = works.indexOfFirst { it.folder == folderUri }; if (wi >= 0) { works[wi] = works[wi].copy(scripts = scripts.toList()); saveWorks() }; getSharedPreferences("shengyu_script_order", MODE_PRIVATE).edit().putString("order_" + (folderUri?.toString()?.hashCode() ?: currentFolderName.hashCode()), scripts.joinToString("\n") { it.toString() }).apply(); refreshRows() } }; true } }, LinearLayout.LayoutParams(dp(42), dp(60)))
-                    list.addView(row, LinearLayout.LayoutParams(-1, dp(66)).apply { bottomMargin = dp(2) })
+                    val row = LinearLayout(this).apply {
+                        orientation = LinearLayout.HORIZONTAL
+                        gravity = Gravity.CENTER_VERTICAL
+                        setPadding(0, dp(2), 0, dp(2))
+                        minimumHeight = dp(56)
+                    }
+                    row.addView(TextView(this).apply {
+                        text = "%02d".format(i + 1) + ".  " + (uri.lastPathSegment?.substringAfterLast("/") ?: ("台本 " + (i + 1)))
+                        textSize = 15f
+                        gravity = Gravity.CENTER_VERTICAL
+                        setPadding(dp(16), dp(4), dp(6), dp(4))
+                        setTextColor(themeColor(0xFF494452.toInt()))
+                        isSingleLine = false
+                        maxLines = Int.MAX_VALUE
+                        ellipsize = null
+                        setHorizontallyScrolling(false)
+                        breakStrategy = android.text.Layout.BREAK_STRATEGY_SIMPLE
+                        hyphenationFrequency = android.text.Layout.HYPHENATION_FREQUENCY_NONE
+                        setLineSpacing(dp(2).toFloat(), 1f)
+                        setOnClickListener {
+                            selectedScriptIndex = i
+                            dialog.dismiss()
+                            currentScreen = returnScreen
+                            showScript = true
+                            loadScript()
+                        }
+                    }, LinearLayout.LayoutParams(0, -2, 1f))
+                    row.addView(TextView(this).apply {
+                        text = "⠿"
+                        textSize = 22f
+                        gravity = Gravity.CENTER
+                        setTextColor(themeColor(0xFF9487A1.toInt()))
+                        setOnLongClickListener { v -> v.startDragAndDrop(android.content.ClipData.newPlainText("script-index", i.toString()), View.DragShadowBuilder(v), i, 0); true }
+                        setOnDragListener { _, e ->
+                            if (e.action == android.view.DragEvent.ACTION_DROP) {
+                                val from = e.localState as? Int
+                                if (from != null && from in scripts.indices && from != i) {
+                                    val moved = scripts.removeAt(from)
+                                    scripts.add(i, moved)
+                                    val wi = works.indexOfFirst { it.folder == folderUri }
+                                    if (wi >= 0) { works[wi] = works[wi].copy(scripts = scripts.toList()); saveWorks() }
+                                    getSharedPreferences("shengyu_script_order", MODE_PRIVATE).edit().putString("order_" + (folderUri?.toString()?.hashCode() ?: currentFolderName.hashCode()), scripts.joinToString("\n") { it.toString() }).apply()
+                                    refreshRows()
+                                }
+                            }
+                            true
+                        }
+                    }, LinearLayout.LayoutParams(dp(42), dp(44)))
+                    list.addView(row, LinearLayout.LayoutParams(-1, -2).apply { bottomMargin = dp(1) })
                 }
                 if (scripts.isEmpty()) list.addView(label("这个作品没有台本", 13, themeColor(0xFF9A8EA4.toInt())).apply { setPadding(dp(12), dp(18), 0, dp(18)) })
             }
