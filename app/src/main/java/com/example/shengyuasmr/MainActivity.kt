@@ -709,19 +709,22 @@ class MainActivity : ComponentActivity() {
         if (sample !== bitmap && !sample.isRecycled) sample.recycle()
         if (count == 0L) return themeColor(0x55DCCFE8.toInt())
         val night = isNightMode()
-        // Keep the artwork surround aligned with the app's plum-gray night surfaces.
-        // A restrained artwork tint adds atmosphere without letting muddy image averages
-        // turn the whole frame brown or gray.
-        val blend = if (night) 0.08 else 0.035
-        // Night: soft plum-gray. Light: near-white lavender so the artwork surround
-        // stays consistent with the library's bright, airy surface instead of gray.
-        val baseR = if (night) 48 else 249
-        val baseG = if (night) 44 else 247
-        val baseB = if (night) 56 else 252
+        // Derive the surround from the selected accent hue so every theme gets
+        // its own coordinated soft surface (lavender, sakura, sky, mint, matcha, apricot).
+        val accentHue = themeOptions.firstOrNull { it.id == selectedThemeId() }?.hue ?: 270f
+        val base = if (night) {
+            android.graphics.Color.HSVToColor(floatArrayOf(accentHue, 0.16f, 0.20f))
+        } else {
+            android.graphics.Color.HSVToColor(floatArrayOf(accentHue, 0.13f, 0.985f))
+        }
+        // Keep only a very subtle hint of the illustration so its colors never muddy the frame.
+        val blend = if (night) 0.035 else 0.018
+        val baseR = android.graphics.Color.red(base)
+        val baseG = android.graphics.Color.green(base)
+        val baseB = android.graphics.Color.blue(base)
         val r = ((red / count) * blend + baseR * (1.0 - blend)).toInt().coerceIn(0, 255)
         val g = ((green / count) * blend + baseG * (1.0 - blend)).toInt().coerceIn(0, 255)
         val b = ((blue / count) * blend + baseB * (1.0 - blend)).toInt().coerceIn(0, 255)
-        // Use an opaque, deliberately light/dark surface in both modes for a consistent frame.
         return android.graphics.Color.argb(255, r, g, b)
     }
 
