@@ -2236,7 +2236,6 @@ class MainActivity : ComponentActivity() {
                     appearanceDialog?.dismiss()
                     applySystemBars()
                     refreshThemeScreen()
-                    showAppearanceSettings()
                 }
             }
             modeRow.addView(item, LinearLayout.LayoutParams(0, dp(42), 1f).apply {
@@ -2279,7 +2278,6 @@ class MainActivity : ComponentActivity() {
                     appearanceDialog?.dismiss()
                     applySystemBars()
                     refreshThemeScreen()
-                    showAppearanceSettings()
                 }
             }
             swatches.addView(swatch, LinearLayout.LayoutParams(dp(38), dp(38)).apply {
