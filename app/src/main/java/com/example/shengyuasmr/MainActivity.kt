@@ -1215,8 +1215,8 @@ class MainActivity : ComponentActivity() {
                     val row = LinearLayout(this).apply {
                         orientation = LinearLayout.HORIZONTAL
                         gravity = Gravity.CENTER_VERTICAL
-                        setPadding(0, dp(8), 0, dp(8))
-                        minimumHeight = dp(70)
+                        setPadding(0, dp(2), 0, dp(2))
+                        minimumHeight = dp(56)
                         background = android.graphics.drawable.GradientDrawable().apply {
                             setColor(if (active) themeColor(0xFFF1ECF8.toInt()) else android.graphics.Color.TRANSPARENT)
                             cornerRadius = dp(18).toFloat()
@@ -1226,7 +1226,7 @@ class MainActivity : ComponentActivity() {
                         text = (if (active) "▶  " else "") + "%02d".format(i + 1) + ".  " + track.name
                         textSize = 15f
                         gravity = Gravity.CENTER_VERTICAL
-                        setPadding(dp(16), dp(8), dp(6), dp(8))
+                        setPadding(dp(16), dp(4), dp(6), dp(4))
                         setTextColor(if (active) themeColor(0xFF70558F.toInt()) else themeColor(0xFF494452.toInt()))
                         setTypeface(typeface, if (active) android.graphics.Typeface.BOLD else android.graphics.Typeface.NORMAL)
                         // Keep the complete file name; let the row grow vertically instead of truncating it.
@@ -1278,9 +1278,9 @@ class MainActivity : ComponentActivity() {
                         }
                     }
                     // Center the handle vertically even when a long title makes the row taller.
-                    row.addView(dragHandle, LinearLayout.LayoutParams(dp(42), dp(60)))
+                    row.addView(dragHandle, LinearLayout.LayoutParams(dp(42), dp(44)))
                     list.addView(row, LinearLayout.LayoutParams(-1, -2).apply {
-                        bottomMargin = dp(2)
+                        bottomMargin = dp(1)
                     })
                 }
                 if (tracks.isEmpty()) list.addView(label("这个作品没有音轨", 13, themeColor(0xFF9A8EA4.toInt())).apply { setPadding(dp(12), dp(18), 0, dp(18)) })
