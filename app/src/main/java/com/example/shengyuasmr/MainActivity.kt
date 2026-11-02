@@ -215,7 +215,9 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun themeColor(color: Int): Int {
-        val themed = themeColorFor(color, selectedThemeId())
+        // Night mode is a fixed, standalone moonlit-purple theme rather than a darkened
+        // version of whichever daytime accent happens to be selected.
+        val themed = themeColorFor(color, if (isNightMode()) "lavender" else selectedThemeId())
         return if (isNightMode()) nightColorFor(themed) else themed
     }
 
@@ -2262,8 +2264,58 @@ class MainActivity : ComponentActivity() {
 
         var appearanceDialog: android.app.AlertDialog? = null
 
-        panel.addView(label("显示模式", 13, themeColor(0xFF81798F.toInt()), true).apply {
-            setPadding(0, dp(4), 0, dp(8))
+        // Daytime mode: choosing any accent color also exits standalone night mode.
+        panel.addView(label("日间模式", 13, themeColor(0xFF81798F.toInt()), true).apply {
+            setPadding(0, dp(4), 0, dp(10))
+        })
+
+        val swatches = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER
+        }
+        themeOptions.forEach { option ->
+            val selected = appearanceMode() != "dark" && option.id == selectedThemeId()
+            val swatch = TextView(this).apply {
+                text = if (selected) "✓" else ""
+                textSize = 17f
+                gravity = Gravity.CENTER
+                setTextColor(android.graphics.Color.WHITE)
+                contentDescription = option.name + if (selected) "，当前日间主题" else "日间主题"
+                background = android.graphics.drawable.GradientDrawable().apply {
+                    shape = android.graphics.drawable.GradientDrawable.OVAL
+                    setColor(themeColorFor(0xFF806B9A.toInt(), option.id))
+                    setStroke(
+                        dp(if (selected) 2 else 1),
+                        if (selected) themeColorFor(0xFF51435F.toInt(), option.id)
+                        else themeColorFor(0xFFEAE3F0.toInt(), option.id)
+                    )
+                }
+                setOnClickListener {
+                    prefs.edit()
+                        .putString("app_theme", option.id)
+                        .putString("app_appearance_mode", "light")
+                        .apply()
+                    appearanceDialog?.dismiss()
+                    applySystemBars()
+                    refreshThemeScreen()
+                }
+            }
+            swatches.addView(swatch, LinearLayout.LayoutParams(dp(38), dp(38)).apply {
+                weight = 1f
+                marginStart = dp(3)
+                marginEnd = dp(3)
+            })
+        }
+        panel.addView(swatches, LinearLayout.LayoutParams(-1, dp(48)))
+
+        panel.addView(label("选择日间配色；切换日间配色会自动退出夜间模式。", 11, themeColor(0xFF9A8EA4.toInt())).apply {
+            setPadding(0, dp(3), 0, dp(14))
+        })
+
+        // Night mode is a standalone seventh theme. System mode uses the selected daytime
+        // color in light system mode and the fixed moonlit-purple palette in dark system mode.
+        panel.addView(label("夜间模式", 13, themeColor(0xFF81798F.toInt()), true).apply {
+            setPadding(0, dp(2), 0, dp(8))
         })
 
         val modeRow = LinearLayout(this).apply {
@@ -2271,7 +2323,6 @@ class MainActivity : ComponentActivity() {
             gravity = Gravity.CENTER
         }
         val modeOptions = listOf(
-            "light" to "浅色",
             "dark" to "夜间",
             "system" to "跟随系统"
         )
@@ -2300,57 +2351,16 @@ class MainActivity : ComponentActivity() {
             })
         }
         panel.addView(modeRow, LinearLayout.LayoutParams(-1, dp(44)))
-        panel.addView(label("夜间模式采用「月夜紫」配色；跟随系统会读取 Android 的深色模式设置。", 11, themeColor(0xFF9A8EA4.toInt())).apply {
-            setPadding(0, dp(5), 0, dp(14))
+        panel.addView(label("夜间模式使用独立的「月夜紫」配色，不会与日间颜色叠加；跟随系统会根据 Android 的深色模式自动切换。", 11, themeColor(0xFF9A8EA4.toInt())).apply {
+            setPadding(0, dp(5), 0, dp(10))
         })
 
-        panel.addView(label("主题颜色", 13, themeColor(0xFF81798F.toInt()), true).apply {
-            setPadding(0, dp(2), 0, dp(10))
-        })
-
-        val swatches = LinearLayout(this).apply {
-            orientation = LinearLayout.HORIZONTAL
-            gravity = Gravity.CENTER
-        }
-        themeOptions.forEach { option ->
-            val selected = option.id == selectedThemeId()
-            val swatch = TextView(this).apply {
-                text = if (selected) "✓" else ""
-                textSize = 17f
-                gravity = Gravity.CENTER
-                setTextColor(android.graphics.Color.WHITE)
-                contentDescription = option.name + if (selected) "，当前主题" else "主题"
-                background = android.graphics.drawable.GradientDrawable().apply {
-                    shape = android.graphics.drawable.GradientDrawable.OVAL
-                    setColor(themeColorFor(0xFF806B9A.toInt(), option.id))
-                    setStroke(
-                        dp(if (selected) 2 else 1),
-                        if (selected) themeColorFor(0xFF51435F.toInt(), option.id)
-                        else themeColorFor(0xFFEAE3F0.toInt(), option.id)
-                    )
-                }
-                setOnClickListener {
-                    prefs.edit().putString("app_theme", option.id).apply()
-                    appearanceDialog?.dismiss()
-                    applySystemBars()
-                    refreshThemeScreen()
-                }
-            }
-            swatches.addView(swatch, LinearLayout.LayoutParams(dp(38), dp(38)).apply {
-                weight = 1f
-                marginStart = dp(3)
-                marginEnd = dp(3)
-            })
-        }
-        panel.addView(swatches, LinearLayout.LayoutParams(-1, dp(48)))
-
-        val currentName = themeOptions.firstOrNull { it.id == selectedThemeId() }?.name ?: "薰衣草紫"
         val currentModeName = when (appearanceMode()) {
-            "dark" -> "夜间模式"
-            "system" -> "跟随系统"
-            else -> "浅色模式"
+            "dark" -> "夜间模式 · 月夜紫"
+            "system" -> "跟随系统 · 日间使用所选配色，深色时使用月夜紫"
+            else -> "日间模式 · " + (themeOptions.firstOrNull { it.id == selectedThemeId() }?.name ?: "薰衣草紫")
         }
-        panel.addView(label("当前：$currentModeName · $currentName", 11, themeColor(0xFF9A8EA4.toInt())).apply {
+        panel.addView(label("当前：$currentModeName", 11, themeColor(0xFF9A8EA4.toInt())).apply {
             gravity = Gravity.CENTER
             setPadding(0, dp(3), 0, dp(8))
         })
