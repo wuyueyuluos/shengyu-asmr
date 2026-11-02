@@ -713,12 +713,14 @@ class MainActivity : ComponentActivity() {
         // its own coordinated soft surface (lavender, sakura, sky, mint, matcha, apricot).
         val accentHue = themeOptions.firstOrNull { it.id == selectedThemeId() }?.hue ?: 270f
         val base = if (night) {
-            android.graphics.Color.HSVToColor(floatArrayOf(accentHue, 0.16f, 0.20f))
+            android.graphics.Color.HSVToColor(floatArrayOf(accentHue, 0.12f, 0.20f))
         } else {
-            android.graphics.Color.HSVToColor(floatArrayOf(accentHue, 0.13f, 0.985f))
+            // Near-white pastel tint: theme identity remains visible, but never competes
+            // with the illustration or makes the large surround look strongly colored.
+            android.graphics.Color.HSVToColor(floatArrayOf(accentHue, 0.045f, 0.995f))
         }
-        // Keep only a very subtle hint of the illustration so its colors never muddy the frame.
-        val blend = if (night) 0.035 else 0.018
+        // Keep artwork influence extremely subtle, especially on the bright surface.
+        val blend = if (night) 0.025 else 0.008
         val baseR = android.graphics.Color.red(base)
         val baseG = android.graphics.Color.green(base)
         val baseB = android.graphics.Color.blue(base)
