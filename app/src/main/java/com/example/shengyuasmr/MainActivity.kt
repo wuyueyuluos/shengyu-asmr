@@ -129,6 +129,12 @@ class MainActivity : ComponentActivity() {
     private val importTagFile = registerForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
         if (uri != null) importTagCatalog(uri)
     }
+    private val exportBackupFile = registerForActivityResult(ActivityResultContracts.CreateDocument("application/json")) { uri ->
+        if (uri != null) exportLibraryBackup(uri)
+    }
+    private val importBackupFile = registerForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+        if (uri != null) confirmImportLibraryBackup(uri)
+    }
     private val pickFolder = registerForActivityResult(ActivityResultContracts.OpenDocumentTree()) { uri ->
         if (uri != null) {
             try { contentResolver.takePersistableUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION) } catch (_: SecurityException) { }
@@ -2154,7 +2160,9 @@ class MainActivity : ComponentActivity() {
                 "导入方式：${if (mode == "auto") "自动导入新作品" else "扫描后手动选择"}",
                 "扫描作品库",
                 "导出标签",
-                "导入标签"
+                "导入标签",
+                "备份作品库",
+                "恢复作品库"
             )) { dialog, which ->
                 when (which) {
                     0 -> { dialog.dismiss(); pickingLibraryRoot = true; pickFolder.launch(root) }
@@ -2168,8 +2176,104 @@ class MainActivity : ComponentActivity() {
                     2 -> { dialog.dismiss(); if (root == null) { pickingLibraryRoot = true; pickFolder.launch(null) } else scanLibraryRoot(root) }
                     3 -> { dialog.dismiss(); exportTagFile.launch("shengyu-tags.json") }
                     4 -> { dialog.dismiss(); importTagFile.launch(arrayOf("application/json", "text/json", "text/plain")) }
+                    5 -> { dialog.dismiss(); exportBackupFile.launch("shengyu-library-backup.json") }
+                    6 -> { dialog.dismiss(); importBackupFile.launch(arrayOf("application/json", "text/json", "text/plain")) }
                 }
             }.setNegativeButton("关闭", null).showStyled()
+    }
+
+    private fun backupPreferences(name: String): JSONObject {
+        val result = JSONObject()
+        getSharedPreferences(name, MODE_PRIVATE).all.forEach { (key, value) ->
+            val entry = JSONObject()
+            when (value) {
+                is String -> entry.put("type", "string").put("value", value)
+                is Boolean -> entry.put("type", "boolean").put("value", value)
+                is Int -> entry.put("type", "int").put("value", value)
+                is Long -> entry.put("type", "long").put("value", value)
+                is Float -> entry.put("type", "float").put("value", value.toDouble())
+                is Set<*> -> entry.put("type", "stringSet").put("value", JSONArray(value.filterIsInstance<String>()))
+                else -> return@forEach
+            }
+            result.put(key, entry)
+        }
+        return result
+    }
+
+    private fun restorePreferences(name: String, values: JSONObject) {
+        val editor = getSharedPreferences(name, MODE_PRIVATE).edit().clear()
+        val keys = values.keys()
+        while (keys.hasNext()) {
+            val key = keys.next()
+            val entry = values.optJSONObject(key) ?: continue
+            when (entry.optString("type")) {
+                "string" -> editor.putString(key, entry.optString("value"))
+                "boolean" -> editor.putBoolean(key, entry.optBoolean("value"))
+                "int" -> editor.putInt(key, entry.optInt("value"))
+                "long" -> editor.putLong(key, entry.optLong("value"))
+                "float" -> editor.putFloat(key, entry.optDouble("value").toFloat())
+                "stringSet" -> {
+                    val a = entry.optJSONArray("value") ?: JSONArray()
+                    editor.putStringSet(key, (0 until a.length()).map { a.optString(it) }.toSet())
+                }
+            }
+        }
+        editor.apply()
+    }
+
+    private fun exportLibraryBackup(uri: Uri) {
+        try {
+            savePlaybackMemory()
+            val backup = JSONObject().put("app", "声屿 ASMR").put("formatVersion", 1)
+                .put("createdAt", System.currentTimeMillis()).put("worksCount", works.size)
+                .put("preferences", JSONObject()
+                    .put("shengyu_library", backupPreferences("shengyu_library"))
+                    .put("shengyu_playback", backupPreferences("shengyu_playback"))
+                    .put("shengyu_settings", backupPreferences("shengyu_settings")))
+            val output = contentResolver.openOutputStream(uri, "wt") ?: throw IllegalStateException("无法创建备份文件")
+            output.use { it.write(backup.toString(2).toByteArray(Charsets.UTF_8)) }
+            Toast.makeText(this, "作品库备份完成：${works.size} 部作品", Toast.LENGTH_LONG).show()
+        } catch (e: Exception) {
+            Toast.makeText(this, "备份失败：${e.message ?: "无法写入文件"}", Toast.LENGTH_LONG).show()
+        }
+    }
+
+    private fun confirmImportLibraryBackup(uri: Uri) {
+        try {
+            val input = contentResolver.openInputStream(uri) ?: throw IllegalStateException("无法读取备份文件")
+            val bytes = input.use { it.readBytes() }
+            if (bytes.isEmpty() || bytes.size > 20 * 1024 * 1024) throw IllegalArgumentException("备份文件为空或超过 20 MB")
+            val backup = JSONObject(String(bytes, Charsets.UTF_8).removePrefix("\uFEFF"))
+            if (backup.optString("app") != "声屿 ASMR" || backup.optInt("formatVersion", -1) != 1)
+                throw IllegalArgumentException("这不是受支持的声屿 ASMR 备份文件")
+            val prefs = backup.optJSONObject("preferences") ?: throw IllegalArgumentException("备份文件缺少设置数据")
+            val names = listOf("shengyu_library", "shengyu_playback", "shengyu_settings")
+            if (names.any { prefs.optJSONObject(it) == null }) throw IllegalArgumentException("备份文件不完整，无法恢复")
+            val count = backup.optInt("worksCount", -1)
+            android.app.AlertDialog.Builder(this).setTitle("恢复作品库")
+                .setMessage("备份中包含 $count 部作品及其标签、收藏、播放记录和设置。\n\n恢复会覆盖当前 App 中的这些数据，不会删除音频、图片或台本原文件。\n\n文件夹访问授权不会随备份转移到另一台手机；换机后可能需要重新选择作品库目录并重新扫描。建议先单独保留当前备份。")
+                .setPositiveButton("覆盖并恢复") { _, _ -> restoreLibraryBackup(prefs, count) }
+                .setNegativeButton("取消", null).showStyled()
+        } catch (e: Exception) {
+            Toast.makeText(this, "无法恢复：${e.message ?: "备份文件格式错误"}", Toast.LENGTH_LONG).show()
+        }
+    }
+
+    private fun restoreLibraryBackup(prefs: JSONObject, count: Int) {
+        try {
+            try { player?.pause(); player?.release() } catch (_: Exception) { }
+            player = null; playbackFolderUri = null; playbackTrackIndex = -1
+            listOf("shengyu_library", "shengyu_playback", "shengyu_settings").forEach { restorePreferences(it, prefs.getJSONObject(it)) }
+            libraryFilter = getSharedPreferences("shengyu_library", MODE_PRIVATE).getString("library_filter", "全部作品") ?: "全部作品"
+            appliedTags.clear()
+            val tags = JSONArray(getSharedPreferences("shengyu_library", MODE_PRIVATE).getString("applied_filter_tags", "[]") ?: "[]")
+            for (i in 0 until tags.length()) tags.optString(i).takeIf { it.isNotBlank() }?.let { appliedTags.add(it) }
+            loadWorks()
+            updateMediaPlaybackState(false); updateMediaNotification(); renderLibrary()
+            Toast.makeText(this, "恢复完成：已导入 $count 部作品的信息。若文件夹无法访问，请重新设置作品库目录。", Toast.LENGTH_LONG).show()
+        } catch (e: Exception) {
+            Toast.makeText(this, "恢复失败：${e.message ?: "数据格式错误"}", Toast.LENGTH_LONG).show()
+        }
     }
 
     private data class ScannedWork(val folder: DocumentFile, val tracks: List<LocalTrack>, val arts: List<Uri>, val scripts: List<Uri>)
