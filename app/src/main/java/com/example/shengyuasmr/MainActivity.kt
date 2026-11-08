@@ -1,6 +1,9 @@
 package com.example.shengyuasmr
 
 import android.app.Activity
+import android.content.ComponentName
+import android.content.ServiceConnection
+import android.os.IBinder
 import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.PendingIntent
@@ -62,6 +65,24 @@ class MainActivity : ComponentActivity() {
     private val works = mutableListOf<LocalWork>()
     private var scanningFolder: Uri? = null
     private var player: MediaPlayer? = null
+    private var playbackService: PlaybackService? = null
+    private var playbackServiceBound = false
+    private val playbackServiceConnection = object : ServiceConnection {
+        override fun onServiceConnected(name: ComponentName?, binder: IBinder?) {
+            playbackService = (binder as? PlaybackService.LocalBinder)?.getService()
+            playbackServiceBound = playbackService != null
+            player = playbackService?.player
+            if (player != null) {
+                updateMediaMetadata()
+                updateMediaPlaybackState(try { player?.isPlaying == true } catch (_: Exception) { false })
+            }
+        }
+        override fun onServiceDisconnected(name: ComponentName?) {
+            playbackService = null
+            playbackServiceBound = false
+            player = null
+        }
+    }
     private var mediaSession: MediaSessionCompat? = null
     private val mediaNotificationId = 7301
     private val mediaChannelId = "shengyu_media_playback"
@@ -155,6 +176,7 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         applySystemBars()
         buildShell()
+        bindService(Intent(this, PlaybackService::class.java), playbackServiceConnection, BIND_AUTO_CREATE)
         val libraryPrefs = getSharedPreferences("shengyu_library", MODE_PRIVATE)
         libraryFilter = libraryPrefs.getString("library_filter", "全部作品") ?: "全部作品"
         try {
@@ -1379,28 +1401,31 @@ class MainActivity : ComponentActivity() {
         val queue = trackSource.toList()
         val artSnapshot = workArts.toList()
         try {
-            player?.release()
+            val service = playbackService
+            if (service == null) {
+                Toast.makeText(this, "后台播放服务尚未准备好，请稍后重试。", Toast.LENGTH_SHORT).show()
+                return
+            }
+            try { service.releasePlayback() } catch (_: Exception) { }
+            if (android.os.Build.VERSION.SDK_INT >= 26) startForegroundService(Intent(this, PlaybackService::class.java))
+            else startService(Intent(this, PlaybackService::class.java))
             playbackTracks = queue
             playbackFolderUri = workFolder
             playbackFolderName = workName
             playbackArtworks = artSnapshot
             playbackTrackIndex = index
-            player = MediaPlayer().apply {
-                setDataSource(this@MainActivity, queue[index].uri)
-                setOnCompletionListener {
-                    if (index < queue.lastIndex) {
-                        val sameWorkIsVisible = folderUri == workFolder &&
-                            (currentScreen == "home" || currentScreen == "script" || currentScreen == "tracklist")
-                        playTrack(index + 1, trackSource = queue, workFolder = workFolder, workName = workName, workArts = artSnapshot, updateSelection = sameWorkIsVisible, updateUi = sameWorkIsVisible)
-                    } else {
-                        updateMediaPlaybackState(false)
-                        updateMediaNotification()
-                    }
+            player = service.startPlayback(queue[index].uri, startAt)
+            player?.setOnCompletionListener {
+                if (index < queue.lastIndex) {
+                    val sameWorkIsVisible = folderUri == workFolder &&
+                        (currentScreen == "home" || currentScreen == "script" || currentScreen == "tracklist")
+                    playTrack(index + 1, trackSource = queue, workFolder = workFolder, workName = workName, workArts = artSnapshot, updateSelection = sameWorkIsVisible, updateUi = sameWorkIsVisible)
+                } else {
+                    updateMediaPlaybackState(false)
+                    updateMediaNotification()
                 }
-                prepare()
-                if (startAt > 0) seekTo(startAt.coerceAtMost(duration))
-                start()
             }
+            if (player == null) throw IllegalStateException("后台播放服务无法创建播放器")
             if (updateSelection) currentTrack = index
             resumePosition = startAt.coerceAtLeast(0)
             savePlaybackMemory()
@@ -2261,7 +2286,8 @@ class MainActivity : ComponentActivity() {
 
     private fun restoreLibraryBackup(prefs: JSONObject, count: Int) {
         try {
-            try { player?.pause(); player?.release() } catch (_: Exception) { }
+            try { player?.pause() } catch (_: Exception) { }
+            try { playbackService?.releasePlayback() } catch (_: Exception) { }
             player = null; playbackFolderUri = null; playbackTrackIndex = -1
             listOf("shengyu_library", "shengyu_playback", "shengyu_settings").forEach { restorePreferences(it, prefs.getJSONObject(it)) }
             libraryFilter = getSharedPreferences("shengyu_library", MODE_PRIVATE).getString("library_filter", "全部作品") ?: "全部作品"
@@ -2865,7 +2891,7 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun releasePlayer() {
-        try { player?.release() } catch (_: Exception) {}
+        try { playbackService?.releasePlayback() } catch (_: Exception) {}
         player = null
         currentTrack = -1
     }
@@ -2876,7 +2902,12 @@ class MainActivity : ComponentActivity() {
         savePlaybackMemory()
         progressHandler.removeCallbacks(progressUpdater)
         cancelSleepTimer()
-        player?.release(); player = null
+        // The playback engine belongs to PlaybackService, not this Activity.
+        player = null
+        if (playbackServiceBound) {
+            try { unbindService(playbackServiceConnection) } catch (_: Exception) { }
+            playbackServiceBound = false
+        }
         super.onDestroy()
     }
 }
