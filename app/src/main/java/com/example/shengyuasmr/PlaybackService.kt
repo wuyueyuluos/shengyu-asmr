@@ -22,6 +22,8 @@ class PlaybackService : Service() {
     private val binder = LocalBinder()
     var player: MediaPlayer? = null
         private set
+    var isForegroundStarted: Boolean = false
+        private set
 
     private val channelId = "shengyu_media_playback"
     private val notificationId = 7301
@@ -49,6 +51,7 @@ class PlaybackService : Service() {
         } else {
             startForeground(notificationId, notification)
         }
+        isForegroundStarted = true
         return START_NOT_STICKY
     }
 
@@ -74,6 +77,7 @@ class PlaybackService : Service() {
             @Suppress("DEPRECATION")
             stopForeground(true)
         }
+        isForegroundStarted = false
         stopSelf()
     }
 
