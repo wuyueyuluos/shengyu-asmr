@@ -2215,34 +2215,14 @@ class MainActivity : ComponentActivity() {
                 .setNegativeButton("返回", null)
                 .showStyled()
         }
-        fun chooseAudioInterruptionMode() {
-            val autoResume = prefs.getBoolean("auto_resume_after_focus_loss", false)
-            android.app.AlertDialog.Builder(this)
-                .setTitle("音频中断处理")
-                .setSingleChoiceItems(arrayOf(
-                    "标准模式（永久中断后不自动恢复）",
-                    "积极恢复模式（音频焦点重新可用后自动恢复）"
-                ), if (autoResume) 1 else 0) { dialog, which ->
-                    prefs.edit().putBoolean("auto_resume_after_focus_loss", which == 1).apply()
-                    dialog.dismiss()
-                    showPlaybackSettings()
-                }
-                .setNegativeButton("返回", null)
-                .showStyled()
-        }
-        val autoResumeLabel = if (prefs.getBoolean("auto_resume_after_focus_loss", false)) "积极恢复模式" else "标准模式"
         android.app.AlertDialog.Builder(this)
             .setTitle("播放")
             .setItems(arrayOf(
                 "回退按键：${prefs.getInt("seek_back_seconds", 15)} 秒",
-                "前进按键：${prefs.getInt("seek_forward_seconds", 15)} 秒",
-                "音频中断处理：$autoResumeLabel"
+                "前进按键：${prefs.getInt("seek_forward_seconds", 15)} 秒"
             )) { _, which ->
-                when (which) {
-                    0 -> chooseSeconds("seek_back_seconds", "回退多少秒")
-                    1 -> chooseSeconds("seek_forward_seconds", "前进多少秒")
-                    2 -> chooseAudioInterruptionMode()
-                }
+                if (which == 0) chooseSeconds("seek_back_seconds", "回退多少秒")
+                else chooseSeconds("seek_forward_seconds", "前进多少秒")
             }
             .setNegativeButton("完成", null)
             .showStyled()
