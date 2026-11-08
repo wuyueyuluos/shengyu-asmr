@@ -6,7 +6,13 @@ import android.app.NotificationManager
 import android.app.PendingIntent
 import android.app.Service
 import android.content.Intent
+import android.content.BroadcastReceiver
+import android.content.Context
+import android.content.IntentFilter
 import android.graphics.BitmapFactory
+import android.media.AudioAttributes
+import android.media.AudioFocusRequest
+import android.media.AudioManager
 import android.media.MediaPlayer
 import android.net.Uri
 import android.os.Binder
@@ -55,11 +61,55 @@ class PlaybackService : Service() {
     private val actionToggle = "com.example.shengyuasmr.SERVICE_TOGGLE"
     private val actionNext = "com.example.shengyuasmr.SERVICE_NEXT"
     private var mediaSession: MediaSessionCompat? = null
+    private var audioManager: AudioManager? = null
+    private var audioFocusRequest: AudioFocusRequest? = null
+    private var hasAudioFocus = false
+    private var resumeOnFocusGain = false
+
+    private val audioFocusChangeListener = AudioManager.OnAudioFocusChangeListener { change ->
+        when (change) {
+            AudioManager.AUDIOFOCUS_GAIN -> {
+                if (resumeOnFocusGain) {
+                    resumeOnFocusGain = false
+                    try { player?.setVolume(1f, 1f) } catch (_: Exception) { }
+                    resumePlayback()
+                }
+            }
+            AudioManager.AUDIOFOCUS_LOSS_TRANSIENT,
+            AudioManager.AUDIOFOCUS_LOSS_TRANSIENT_CAN_DUCK -> {
+                if (isPlaying()) {
+                    resumeOnFocusGain = true
+                    pauseInternal(abandonFocus = false)
+                }
+            }
+            AudioManager.AUDIOFOCUS_LOSS -> {
+                resumeOnFocusGain = false
+                pauseInternal(abandonFocus = true)
+            }
+        }
+    }
+
+    private val noisyReceiver = object : BroadcastReceiver() {
+        override fun onReceive(context: Context?, intent: Intent?) {
+            if (intent?.action == AudioManager.ACTION_AUDIO_BECOMING_NOISY && isPlaying()) {
+                resumeOnFocusGain = false
+                pauseInternal(abandonFocus = true)
+            }
+        }
+    }
 
     override fun onCreate() {
         super.onCreate()
+        audioManager = getSystemService(Context.AUDIO_SERVICE) as AudioManager
         createNotificationChannel()
         setupMediaSession()
+        val filter = IntentFilter(AudioManager.ACTION_AUDIO_BECOMING_NOISY)
+        if (Build.VERSION.SDK_INT >= 33) {
+            registerReceiver(noisyReceiver, filter, Context.RECEIVER_NOT_EXPORTED)
+        } else {
+            @Suppress("DEPRECATION")
+            registerReceiver(noisyReceiver, filter)
+        }
     }
 
     override fun onBind(intent: Intent?): IBinder = binder
@@ -104,6 +154,8 @@ class PlaybackService : Service() {
                 if (currentIndex < queue.lastIndex) skipToNext()
                 else {
                     lastPosition = 0
+                    resumeOnFocusGain = false
+                    abandonAudioFocus()
                     updatePlaybackState(false, PlaybackStateCompat.STATE_STOPPED)
                     updateNotification(currentArtIndex)
                     playbackListener?.onPlaybackStateChanged(false)
@@ -111,6 +163,12 @@ class PlaybackService : Service() {
             }
             created.prepare()
             if (startAt > 0) created.seekTo(startAt.coerceAtMost(created.duration))
+            if (!requestAudioFocus()) {
+                releasePlayerOnly()
+                updatePlaybackState(false)
+                updateNotification(currentArtIndex)
+                return null
+            }
             created.start()
             updateMediaMetadata(currentArtIndex)
             updatePlaybackState(true)
@@ -119,6 +177,8 @@ class PlaybackService : Service() {
             return created
         } catch (error: Exception) {
             releasePlayerOnly()
+            resumeOnFocusGain = false
+            abandonAudioFocus()
             updatePlaybackState(false)
             updateNotification(currentArtIndex)
             throw error
@@ -131,10 +191,16 @@ class PlaybackService : Service() {
     }
 
     fun pausePlayback() {
+        resumeOnFocusGain = false
+        pauseInternal(abandonFocus = true)
+    }
+
+    private fun pauseInternal(abandonFocus: Boolean) {
         try {
             player?.pause()
             lastPosition = player?.currentPosition ?: lastPosition
         } catch (_: Exception) { }
+        if (abandonFocus) abandonAudioFocus()
         updatePlaybackState(false)
         updateNotification(currentArtIndex)
         playbackListener?.onPlaybackStateChanged(false)
@@ -142,6 +208,7 @@ class PlaybackService : Service() {
 
     fun resumePlayback() {
         try {
+            if (!requestAudioFocus()) return
             if (player == null && currentIndex in queue.indices) {
                 playAt(currentIndex, lastPosition)
                 return
@@ -151,6 +218,42 @@ class PlaybackService : Service() {
         updatePlaybackState(isPlaying())
         updateNotification(currentArtIndex)
         playbackListener?.onPlaybackStateChanged(isPlaying())
+    }
+
+    private fun requestAudioFocus(): Boolean {
+        val manager = audioManager ?: (getSystemService(Context.AUDIO_SERVICE) as AudioManager).also { audioManager = it }
+        if (hasAudioFocus) return true
+        val result = if (Build.VERSION.SDK_INT >= 26) {
+            val request = AudioFocusRequest.Builder(AudioManager.AUDIOFOCUS_GAIN)
+                .setAudioAttributes(
+                    AudioAttributes.Builder()
+                        .setUsage(AudioAttributes.USAGE_MEDIA)
+                        .setContentType(AudioAttributes.CONTENT_TYPE_SPEECH)
+                        .build()
+                )
+                .setOnAudioFocusChangeListener(audioFocusChangeListener)
+                .setWillPauseWhenDucked(true)
+                .build()
+            audioFocusRequest = request
+            manager.requestAudioFocus(request)
+        } else {
+            @Suppress("DEPRECATION")
+            manager.requestAudioFocus(audioFocusChangeListener, AudioManager.STREAM_MUSIC, AudioManager.AUDIOFOCUS_GAIN)
+        }
+        hasAudioFocus = result == AudioManager.AUDIOFOCUS_REQUEST_GRANTED
+        return hasAudioFocus
+    }
+
+    private fun abandonAudioFocus() {
+        val manager = audioManager ?: return
+        if (!hasAudioFocus) return
+        if (Build.VERSION.SDK_INT >= 26) {
+            audioFocusRequest?.let { manager.abandonAudioFocusRequest(it) }
+        } else {
+            @Suppress("DEPRECATION")
+            manager.abandonAudioFocus(audioFocusChangeListener)
+        }
+        hasAudioFocus = false
     }
 
     fun seekTo(position: Int) {
@@ -281,6 +384,8 @@ class PlaybackService : Service() {
 
     fun releasePlayback() {
         releasePlayerOnly()
+        resumeOnFocusGain = false
+        abandonAudioFocus()
         queue = emptyList()
         currentIndex = -1
         workFolder = null
@@ -315,6 +420,9 @@ class PlaybackService : Service() {
 
     override fun onDestroy() {
         releasePlayerOnly()
+        resumeOnFocusGain = false
+        abandonAudioFocus()
+        try { unregisterReceiver(noisyReceiver) } catch (_: Exception) { }
         mediaSession?.isActive = false
         mediaSession?.release()
         mediaSession = null
