@@ -83,8 +83,12 @@ class PlaybackService : Service() {
                 }
             }
             AudioManager.AUDIOFOCUS_LOSS -> {
-                resumeOnFocusGain = false
-                pauseInternal(abandonFocus = true)
+                val autoResume = getSharedPreferences("shengyu_settings", Context.MODE_PRIVATE)
+                    .getBoolean("auto_resume_after_focus_loss", false)
+                resumeOnFocusGain = isPlaying() && autoResume
+                // Keep the focus request only in automatic-recovery mode so the system
+                // can send AUDIOFOCUS_GAIN when the interrupting app releases focus.
+                pauseInternal(abandonFocus = !autoResume)
             }
         }
     }
