@@ -167,12 +167,6 @@ class MainActivity : ComponentActivity() {
     private var resumePosition = 0
     private var folderUri: Uri? = null
     private var pickingLibraryRoot = false
-    private val exportTagFile = registerForActivityResult(ActivityResultContracts.CreateDocument("application/json")) { uri ->
-        if (uri != null) exportTagCatalog(uri)
-    }
-    private val importTagFile = registerForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
-        if (uri != null) importTagCatalog(uri)
-    }
     private val exportBackupFile = registerForActivityResult(ActivityResultContracts.CreateDocument("application/json")) { uri ->
         if (uri != null) exportLibraryBackup(uri)
     }
@@ -732,66 +726,6 @@ class MainActivity : ComponentActivity() {
             .putString("tag_catalog", json.toString()).apply()
     }
 
-    private fun exportTagCatalog(uri: Uri) {
-        try {
-            val catalog = loadTagCatalog()
-            val tags = JSONObject()
-            listOf("CV", "社团", "自定义").forEach { name ->
-                tags.put(name, JSONArray(catalog[name] ?: emptyList<String>()))
-            }
-            val document = JSONObject().put("app", "声屿 ASMR").put("formatVersion", 1)
-                .put("createdAt", System.currentTimeMillis()).put("tags", tags)
-            val output = contentResolver.openOutputStream(uri, "wt")
-                ?: throw IllegalStateException("无法创建导出文件")
-            output.use { it.write(document.toString(2).toByteArray(Charsets.UTF_8)) }
-            val total = catalog.values.sumOf { it.size }
-            Toast.makeText(this, "标签已导出，共 $total 个", Toast.LENGTH_LONG).show()
-        } catch (e: Exception) {
-            Toast.makeText(this, "导出失败：${e.message ?: "无法写入文件"}", Toast.LENGTH_LONG).show()
-        }
-    }
-
-    private fun importTagCatalog(uri: Uri) {
-        try {
-            val input = contentResolver.openInputStream(uri)
-                ?: throw IllegalStateException("无法读取所选文件")
-            val bytes = input.use { it.readBytes() }
-            if (bytes.isEmpty() || bytes.size > 1024 * 1024) {
-                throw IllegalArgumentException("文件为空或超过 1 MB")
-            }
-            val document = JSONObject(String(bytes, Charsets.UTF_8).removePrefix("\uFEFF"))
-            if (document.optInt("formatVersion", -1) != 1) {
-                throw IllegalArgumentException("不支持的标签文件版本")
-            }
-            val source = document.optJSONObject("tags")
-                ?: throw IllegalArgumentException("文件中没有标签数据")
-            val imported = linkedMapOf<String, List<String>>()
-            listOf("CV", "社团", "自定义").forEach { name ->
-                val array = source.optJSONArray(name) ?: JSONArray()
-                imported[name] = (0 until array.length()).map { array.optString(it).trim() }
-                    .filter { it.isNotBlank() }.distinct()
-            }
-            val incomingCount = imported.values.sumOf { it.size }
-            if (incomingCount == 0) throw IllegalArgumentException("文件中没有可导入的标签")
-            val existing = loadTagCatalog()
-            var addedCount = 0
-            imported.forEach { (group, values) ->
-                val bucket = existing[group] ?: mutableListOf<String>().also { existing[group] = it }
-                values.forEach { value -> if (value !in bucket) { bucket.add(value); addedCount++ } }
-            }
-            val groupSummary = listOf("CV", "社团", "自定义").joinToString("、") { group ->
-                "$group ${imported[group]?.size ?: 0} 个"
-            }
-            android.app.AlertDialog.Builder(this).setTitle("导入标签")
-                .setMessage("文件包含：$groupSummary\n\n导入会与当前标签目录合并，重复标签自动跳过；不会修改任何作品资料。")
-                .setPositiveButton("合并导入") { _, _ ->
-                    saveTagCatalog(existing)
-                    Toast.makeText(this, "导入完成，新增 $addedCount 个标签", Toast.LENGTH_LONG).show()
-                }.setNegativeButton("取消", null).showStyled()
-        } catch (e: Exception) {
-            Toast.makeText(this, "导入失败：${e.message ?: "文件格式不正确"}", Toast.LENGTH_LONG).show()
-        }
-    }
     private fun showTagFilter() {
         val prefs = getSharedPreferences("shengyu_library", MODE_PRIVATE)
         val names = listOf("CV", "社团", "自定义")
@@ -2094,8 +2028,6 @@ class MainActivity : ComponentActivity() {
                 "作品库目录：$rootName",
                 "导入方式：${if (mode == "auto") "自动导入新作品" else "扫描后手动选择"}",
                 "扫描作品库",
-                "导出标签",
-                "导入标签",
                 "备份作品库",
                 "恢复作品库"
             )) { dialog, which ->
@@ -2109,10 +2041,8 @@ class MainActivity : ComponentActivity() {
                             }.setNegativeButton("返回", null).showStyled()
                     }
                     2 -> { dialog.dismiss(); if (root == null) { pickingLibraryRoot = true; pickFolder.launch(null) } else scanLibraryRoot(root) }
-                    3 -> { dialog.dismiss(); exportTagFile.launch("shengyu-tags.json") }
-                    4 -> { dialog.dismiss(); importTagFile.launch(arrayOf("application/json", "text/json", "text/plain")) }
-                    5 -> { dialog.dismiss(); exportBackupFile.launch("shengyu-library-backup.json") }
-                    6 -> { dialog.dismiss(); importBackupFile.launch(arrayOf("application/json", "text/json", "text/plain")) }
+                    3 -> { dialog.dismiss(); exportBackupFile.launch("shengyu-library-backup.json") }
+                    4 -> { dialog.dismiss(); importBackupFile.launch(arrayOf("application/json", "text/json", "text/plain")) }
                 }
             }.setNegativeButton("关闭", null).showStyled()
     }
@@ -2478,11 +2408,10 @@ class MainActivity : ComponentActivity() {
             "“从作品库删除”只移除 App 中保存的作品条目，不会删除原文件夹里的音频、插画或台本。"
         )
 
-        section("四、标签管理与备份",
+        section("四、标签管理与作品库备份",
             "标签分为 CV、社团、自定义三组。进入作品库分类中的“标签”，点击“编辑”后可以添加标签；编辑状态下长按标签，可以调整顺序或从标签面板目录中删除。\n\n" +
             "从标签面板目录删除标签，不会清除作品资料里已经保存的 CV、社团或自定义标签。\n\n" +
-            "设置 → 常规 → 导出标签：会生成 JSON 标签文件，可保存到手机或其他位置。导入标签：选择之前导出的 JSON 文件后，会把标签合并到当前目录；重复项自动跳过，不会覆盖现有标签，也不会修改作品资料。\n\n" +
-            "标签备份只包含三组标签目录，不包含作品、音频文件、插画、台本或每部作品的其他资料。"
+            "标签目录和每部作品保存的标签都会随“备份作品库”一并备份；恢复作品库时也会一并恢复标签。备份文件不包含原始音频、插画和台本文件。"
         )
 
         section("五、播放与音轨列表",
