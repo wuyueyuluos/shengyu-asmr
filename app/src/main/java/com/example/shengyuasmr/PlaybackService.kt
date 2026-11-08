@@ -84,18 +84,10 @@ class PlaybackService : Service() {
                 }
             }
             AudioManager.AUDIOFOCUS_LOSS -> {
-                val autoResume = getSharedPreferences("shengyu_settings", Context.MODE_PRIVATE)
-                    .getBoolean("auto_resume_after_focus_loss", false)
-                resumeOnFocusGain = isPlaying() && autoResume
-                // Permanent loss means we no longer own focus. In auto-recovery mode,
-                // retain the request in the system focus stack so a later GAIN can arrive,
-                // but mark our local ownership false so manual play requests focus again.
-                if (autoResume) {
-                    hasAudioFocus = false
-                    pauseInternal(abandonFocus = false)
-                } else {
-                    pauseInternal(abandonFocus = true)
-                }
+                // Standard media-player behavior: permanent focus loss pauses playback
+                // and does not automatically resume when the other app stops.
+                resumeOnFocusGain = false
+                pauseInternal(abandonFocus = true)
             }
         }
     }
