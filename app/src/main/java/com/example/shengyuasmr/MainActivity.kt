@@ -1406,9 +1406,10 @@ class MainActivity : ComponentActivity() {
                 Toast.makeText(this, "后台播放服务尚未准备好，请稍后重试。", Toast.LENGTH_SHORT).show()
                 return
             }
-            try { service.releasePlayback() } catch (_: Exception) { }
-            if (android.os.Build.VERSION.SDK_INT >= 26) startForegroundService(Intent(this, PlaybackService::class.java))
-            else startService(Intent(this, PlaybackService::class.java))
+            if (!service.isForegroundStarted) {
+                if (android.os.Build.VERSION.SDK_INT >= 26) startForegroundService(Intent(this, PlaybackService::class.java))
+                else startService(Intent(this, PlaybackService::class.java))
+            }
             playbackTracks = queue
             playbackFolderUri = workFolder
             playbackFolderName = workName
