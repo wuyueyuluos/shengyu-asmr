@@ -71,11 +71,38 @@ class MainActivity : ComponentActivity() {
         override fun onServiceConnected(name: ComponentName?, binder: IBinder?) {
             playbackService = (binder as? PlaybackService.LocalBinder)?.getService()
             playbackServiceBound = playbackService != null
-            player = playbackService?.player
-            if (player != null) {
-                updateMediaMetadata()
-                updateMediaPlaybackState(try { player?.isPlaying == true } catch (_: Exception) { false })
+            playbackService?.playbackListener = object : PlaybackService.PlaybackListener {
+                override fun onTrackChanged(index: Int, playing: Boolean) {
+                    playbackTracks = playbackService?.queue ?: emptyList()
+                    playbackFolderUri = playbackService?.workFolder
+                    playbackFolderName = playbackService?.workName ?: ""
+                    playbackArtworks = playbackService?.artworks ?: emptyList()
+                    playbackTrackIndex = index
+                    player = playbackService?.player
+                    currentTrack = index
+                    resumePosition = try { player?.currentPosition ?: 0 } catch (_: Exception) { 0 }
+                    if (currentScreen == "home" || currentScreen == "tracklist" || currentScreen == "script") {
+                        if (folderUri == playbackFolderUri) {
+                            if (showScript && currentScreen == "script") loadScript() else renderHome()
+                        }
+                    }
+                }
+                override fun onPlaybackStateChanged(playing: Boolean) {
+                    player = playbackService?.player
+                    if (currentScreen == "home" || currentScreen == "script" || currentScreen == "tracklist") {
+                        if (showScript && currentScreen == "script") loadScript() else renderHome()
+                    }
+                }
             }
+            player = playbackService?.player
+            playbackTracks = playbackService?.queue ?: emptyList()
+            playbackFolderUri = playbackService?.workFolder
+            playbackFolderName = playbackService?.workName ?: ""
+            playbackArtworks = playbackService?.artworks ?: emptyList()
+            playbackTrackIndex = playbackService?.currentIndex ?: -1
+            if (playbackTrackIndex >= 0) currentTrack = playbackTrackIndex
+            updateMediaMetadata()
+            updateMediaPlaybackState(try { player?.isPlaying == true } catch (_: Exception) { false })
         }
         override fun onServiceDisconnected(name: ComponentName?) {
             playbackService = null
@@ -83,12 +110,8 @@ class MainActivity : ComponentActivity() {
             player = null
         }
     }
-    private var mediaSession: MediaSessionCompat? = null
     private val mediaNotificationId = 7301
     private val mediaChannelId = "shengyu_media_playback"
-    private val ACTION_MEDIA_PREVIOUS = "com.example.shengyuasmr.MEDIA_PREVIOUS"
-    private val ACTION_MEDIA_TOGGLE = "com.example.shengyuasmr.MEDIA_TOGGLE"
-    private val ACTION_MEDIA_NEXT = "com.example.shengyuasmr.MEDIA_NEXT"
     // Actual playback may differ from the work currently being browsed.
     private var currentTrack = -1
     private var playbackTracks: List<LocalTrack> = emptyList()
@@ -183,7 +206,6 @@ class MainActivity : ComponentActivity() {
             val savedTags = JSONArray(libraryPrefs.getString("applied_filter_tags", "[]") ?: "[]")
             for (i in 0 until savedTags.length()) savedTags.optString(i).takeIf { it.isNotBlank() }?.let { appliedTags.add(it) }
         } catch (_: Exception) { }
-        setupMediaSession()
         loadWorks()
         onBackPressedDispatcher.addCallback(this, object : OnBackPressedCallback(true) {
             override fun handleOnBackPressed() {
@@ -345,120 +367,16 @@ class MainActivity : ComponentActivity() {
     }
 
 
-    private fun setupMediaSession() {
-        if (android.os.Build.VERSION.SDK_INT >= 26) {
-            val manager = getSystemService(NotificationManager::class.java)
-            manager.createNotificationChannel(NotificationChannel(mediaChannelId, "声屿播放控制", NotificationManager.IMPORTANCE_LOW).apply {
-                description = "显示当前播放作品和音轨，并提供播放控制"
-                setShowBadge(false)
-            })
-        }
-        mediaSession = MediaSessionCompat(this, "ShengyuASMR").apply {
-            setFlags(MediaSessionCompat.FLAG_HANDLES_MEDIA_BUTTONS or MediaSessionCompat.FLAG_HANDLES_TRANSPORT_CONTROLS)
-            setCallback(object : MediaSessionCompat.Callback() {
-                override fun onPlay() {
-                    if (player == null && tracks.isNotEmpty()) playTrack(if (currentTrack >= 0) currentTrack else 0)
-                    else if (player?.isPlaying == false) {
-                        player?.start(); updateMediaPlaybackState(true); updateMediaNotification()
-                        if (currentScreen == "home") renderHome()
-                    }
-                }
-                override fun onPause() {
-                    player?.pause(); updateMediaPlaybackState(false); updateMediaNotification()
-                    if (currentScreen == "home") renderHome()
-                }
-                override fun onSkipToNext() { if (playbackTrackIndex < playbackTracks.lastIndex) playTrack(playbackTrackIndex + 1, trackSource = playbackTracks, workFolder = playbackFolderUri, workName = playbackFolderName, workArts = playbackArtworks, updateSelection = folderUri == playbackFolderUri, updateUi = folderUri == playbackFolderUri) }
-                override fun onSkipToPrevious() { if (playbackTrackIndex > 0) playTrack(playbackTrackIndex - 1, trackSource = playbackTracks, workFolder = playbackFolderUri, workName = playbackFolderName, workArts = playbackArtworks, updateSelection = folderUri == playbackFolderUri, updateUi = folderUri == playbackFolderUri) }
-                override fun onSeekTo(pos: Long) {
-                    player?.seekTo(pos.coerceIn(0, (player?.duration ?: 0).toLong()).toInt())
-                    savePlaybackMemory(); updateMediaPlaybackState(player?.isPlaying == true)
-                }
-            })
-            isActive = true
-        }
-        updateMediaPlaybackState(false)
-    }
-
     private fun updateMediaMetadata() {
-        val track = playbackTracks.getOrNull(playbackTrackIndex) ?: return
-        val bitmap = try {
-            val uri = playbackArtworks.getOrNull(currentArt) ?: works.firstOrNull { it.folder == playbackFolderUri }?.cover
-            uri?.let { contentResolver.openInputStream(it)?.use { stream -> BitmapFactory.decodeStream(stream) } }
-        } catch (_: Exception) { null }
-        val builder = MediaMetadataCompat.Builder()
-            .putString(MediaMetadataCompat.METADATA_KEY_TITLE, playbackFolderName)
-            .putString(MediaMetadataCompat.METADATA_KEY_ARTIST, track.name.substringBeforeLast('.'))
-            .putString(MediaMetadataCompat.METADATA_KEY_ALBUM, playbackFolderName)
-            .putString(MediaMetadataCompat.METADATA_KEY_DISPLAY_TITLE, playbackFolderName)
-            .putString(MediaMetadataCompat.METADATA_KEY_DISPLAY_SUBTITLE, track.name.substringBeforeLast('.'))
-            .putLong(MediaMetadataCompat.METADATA_KEY_DURATION, try { player?.duration?.toLong() ?: 0L } catch (_: Exception) { 0L })
-        if (bitmap != null) { builder.putBitmap(MediaMetadataCompat.METADATA_KEY_ART, bitmap); builder.putBitmap(MediaMetadataCompat.METADATA_KEY_ALBUM_ART, bitmap); builder.putBitmap(MediaMetadataCompat.METADATA_KEY_DISPLAY_ICON, bitmap) }
-        mediaSession?.setMetadata(builder.build())
+        playbackService?.updateMediaMetadata(currentArt)
     }
 
     private fun updateMediaPlaybackState(playing: Boolean) {
-        val position = try { player?.currentPosition?.toLong() ?: resumePosition.toLong() } catch (_: Exception) { resumePosition.toLong() }
-        val actions = PlaybackStateCompat.ACTION_PLAY or PlaybackStateCompat.ACTION_PAUSE or
-            PlaybackStateCompat.ACTION_PLAY_PAUSE or PlaybackStateCompat.ACTION_SKIP_TO_NEXT or
-            PlaybackStateCompat.ACTION_SKIP_TO_PREVIOUS or PlaybackStateCompat.ACTION_SEEK_TO
-        mediaSession?.setPlaybackState(PlaybackStateCompat.Builder()
-            .setActions(actions)
-            .setState(if (playing) PlaybackStateCompat.STATE_PLAYING else PlaybackStateCompat.STATE_PAUSED, position, if (playing) 1f else 0f)
-            .build())
-    }
-
-    private fun mediaButtonPendingIntent(action: String, requestCode: Int): PendingIntent {
-        val intent = Intent(this, MainActivity::class.java).apply {
-            this.action = action
-            flags = Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_CLEAR_TOP
-        }
-        return PendingIntent.getActivity(this, requestCode, intent, PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
-    }
-
-    override fun onNewIntent(intent: Intent) {
-        super.onNewIntent(intent)
-        setIntent(intent)
-        when (intent.action) {
-            ACTION_MEDIA_PREVIOUS -> if (playbackTrackIndex > 0) playTrack(playbackTrackIndex - 1, trackSource = playbackTracks, workFolder = playbackFolderUri, workName = playbackFolderName, workArts = playbackArtworks, updateSelection = folderUri == playbackFolderUri, updateUi = folderUri == playbackFolderUri)
-            ACTION_MEDIA_TOGGLE -> {
-                if (player?.isPlaying == true) { player?.pause(); updateMediaPlaybackState(false); updateMediaNotification() }
-                else if (currentTrack >= 0) { player?.start(); updateMediaPlaybackState(true); updateMediaNotification() }
-                else if (tracks.isNotEmpty()) playTrack(0)
-                if (currentScreen == "home") renderHome()
-            }
-            ACTION_MEDIA_NEXT -> if (playbackTrackIndex < playbackTracks.lastIndex) playTrack(playbackTrackIndex + 1, trackSource = playbackTracks, workFolder = playbackFolderUri, workName = playbackFolderName, workArts = playbackArtworks, updateSelection = folderUri == playbackFolderUri, updateUi = folderUri == playbackFolderUri)
-        }
+        playbackService?.updatePlaybackState(playing)
     }
 
     private fun updateMediaNotification() {
-        val track = playbackTracks.getOrNull(playbackTrackIndex) ?: return
-        val playing = try { player?.isPlaying == true } catch (_: Exception) { false }
-        updateMediaMetadata()
-        updateMediaPlaybackState(playing)
-        val openApp = PendingIntent.getActivity(this, 7302, Intent(this, MainActivity::class.java).apply {
-            flags = Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_CLEAR_TOP
-        }, PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
-        val builder = NotificationCompat.Builder(this, mediaChannelId)
-            .setSmallIcon(android.R.drawable.ic_media_play)
-            .setContentTitle(playbackFolderName)
-            .setContentText(track.name.substringBeforeLast('.'))
-            .setContentIntent(openApp)
-            .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
-            .setOnlyAlertOnce(true)
-            .setLargeIcon(try { val uri = playbackArtworks.getOrNull(currentArt) ?: works.firstOrNull { it.folder == playbackFolderUri }?.cover; uri?.let { contentResolver.openInputStream(it)?.use { stream -> BitmapFactory.decodeStream(stream) } } } catch (_: Exception) { null })
-            .setOngoing(playing)
-            .setShowWhen(false)
-            .addAction(android.R.drawable.ic_media_previous, "上一首", mediaButtonPendingIntent(ACTION_MEDIA_PREVIOUS, 7303))
-            .addAction(if (playing) android.R.drawable.ic_media_pause else android.R.drawable.ic_media_play, if (playing) "暂停" else "播放", mediaButtonPendingIntent(ACTION_MEDIA_TOGGLE, 7304))
-            .addAction(android.R.drawable.ic_media_next, "下一首", mediaButtonPendingIntent(ACTION_MEDIA_NEXT, 7305))
-            .setStyle(MediaStyle().setMediaSession(mediaSession?.sessionToken).setShowActionsInCompactView(0, 1, 2))
-        try {
-            if (android.os.Build.VERSION.SDK_INT < 33 || checkSelfPermission(android.Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED) {
-                NotificationManagerCompat.from(this).notify(mediaNotificationId, builder.build())
-            } else if (android.os.Build.VERSION.SDK_INT >= 33) {
-                requestPermissions(arrayOf(android.Manifest.permission.POST_NOTIFICATIONS), 7306)
-            }
-        } catch (_: SecurityException) { }
+        playbackService?.updateNotification(currentArt)
     }
 
     private fun renderLibrary() {
@@ -1415,17 +1333,8 @@ class MainActivity : ComponentActivity() {
             playbackFolderName = workName
             playbackArtworks = artSnapshot
             playbackTrackIndex = index
-            player = service.startPlayback(queue[index].uri, startAt)
-            player?.setOnCompletionListener {
-                if (index < queue.lastIndex) {
-                    val sameWorkIsVisible = folderUri == workFolder &&
-                        (currentScreen == "home" || currentScreen == "script" || currentScreen == "tracklist")
-                    playTrack(index + 1, trackSource = queue, workFolder = workFolder, workName = workName, workArts = artSnapshot, updateSelection = sameWorkIsVisible, updateUi = sameWorkIsVisible)
-                } else {
-                    updateMediaPlaybackState(false)
-                    updateMediaNotification()
-                }
-            }
+            service.setPlaybackQueue(queue, workFolder, workName, artSnapshot, index, currentArt)
+            player = service.playAt(index, startAt)
             if (player == null) throw IllegalStateException("后台播放服务无法创建播放器")
             if (updateSelection) currentTrack = index
             resumePosition = startAt.coerceAtLeast(0)
@@ -2904,6 +2813,7 @@ class MainActivity : ComponentActivity() {
         progressHandler.removeCallbacks(progressUpdater)
         cancelSleepTimer()
         // The playback engine belongs to PlaybackService, not this Activity.
+        playbackService?.playbackListener = null
         player = null
         if (playbackServiceBound) {
             try { unbindService(playbackServiceConnection) } catch (_: Exception) { }
