@@ -69,6 +69,7 @@ class PlaybackService : Service() {
     private val audioFocusChangeListener = AudioManager.OnAudioFocusChangeListener { change ->
         when (change) {
             AudioManager.AUDIOFOCUS_GAIN -> {
+                hasAudioFocus = true
                 if (resumeOnFocusGain) {
                     resumeOnFocusGain = false
                     try { player?.setVolume(1f, 1f) } catch (_: Exception) { }
@@ -86,9 +87,15 @@ class PlaybackService : Service() {
                 val autoResume = getSharedPreferences("shengyu_settings", Context.MODE_PRIVATE)
                     .getBoolean("auto_resume_after_focus_loss", false)
                 resumeOnFocusGain = isPlaying() && autoResume
-                // Keep the focus request only in automatic-recovery mode so the system
-                // can send AUDIOFOCUS_GAIN when the interrupting app releases focus.
-                pauseInternal(abandonFocus = !autoResume)
+                // Permanent loss means we no longer own focus. In auto-recovery mode,
+                // retain the request in the system focus stack so a later GAIN can arrive,
+                // but mark our local ownership false so manual play requests focus again.
+                if (autoResume) {
+                    hasAudioFocus = false
+                    pauseInternal(abandonFocus = false)
+                } else {
+                    pauseInternal(abandonFocus = true)
+                }
             }
         }
     }
