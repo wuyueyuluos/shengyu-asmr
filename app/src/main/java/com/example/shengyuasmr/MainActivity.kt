@@ -1790,7 +1790,7 @@ class MainActivity : ComponentActivity() {
         val row = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER; setPadding(0, dp(5), 0, dp(2)) }
         fun addControl(title: String, action: () -> Unit, primary: Boolean = false) { val control = TextView(this).apply { text = title; textSize = if (primary) 24f else 19f; gravity = Gravity.CENTER; setTextColor(if (primary) themeColor(0xFFFFFFFF.toInt()) else themeColor(0xFF6D5D7D.toInt())); background = android.graphics.drawable.GradientDrawable().apply { cornerRadius = dp(if (primary) 28 else 18).toFloat(); setColor(if (primary) themeColor(0xFF927DAA.toInt()) else themeColor(0xFFEDE5F2.toInt())) }; if (primary) elevation = dp(3).toFloat(); setOnClickListener { action() } }; row.addView(control, LinearLayout.LayoutParams(0, dp(if (primary) 56 else 48), 1f).apply { setMargins(dp(3), 0, dp(3), 0) }) }
         addControl("☷", { showTrackList() }); addControl("↶", { player?.let { p -> val seconds = getSharedPreferences("shengyu_settings", MODE_PRIVATE).getInt("seek_back_seconds", 15); p.seekTo((p.currentPosition - seconds * 1000).coerceAtLeast(0)) } })
-        addControl(if (player?.isPlaying == true) "Ⅱ" else "▶", { if (player?.isPlaying == true) { player?.pause(); updateMediaPlaybackState(false); updateMediaNotification(); if (showScript) loadScript() else renderHome() } else if (currentTrack >= 0) { player?.start(); updateMediaPlaybackState(true); updateMediaNotification(); if (showScript) loadScript() else renderHome() } else if (tracks.isNotEmpty()) playTrack(0) }, true)
+        addControl(if (player?.isPlaying == true) "Ⅱ" else "▶", { if (player?.isPlaying == true) { playbackService?.pausePlayback() } else if (currentTrack >= 0) { playbackService?.resumePlayback() } else if (tracks.isNotEmpty()) playTrack(0) }, true)
         addControl("↷", { player?.let { p -> val seconds = getSharedPreferences("shengyu_settings", MODE_PRIVATE).getInt("seek_forward_seconds", 15); p.seekTo((p.currentPosition + seconds * 1000).coerceAtMost(p.duration)) } })
         addControl("▤", { if (showScript) { showScript = false; renderHome() } else if (scripts.isNotEmpty()) { showScript = true; loadScript() } else Toast.makeText(this, "这个作品没有台本。", Toast.LENGTH_SHORT).show() })
         content.addView(row)
@@ -2196,7 +2196,7 @@ class MainActivity : ComponentActivity() {
 
     private fun restoreLibraryBackup(prefs: JSONObject, count: Int) {
         try {
-            try { player?.pause() } catch (_: Exception) { }
+            try { playbackService?.pausePlayback() } catch (_: Exception) { }
             try { playbackService?.releasePlayback() } catch (_: Exception) { }
             player = null; playbackFolderUri = null; playbackTrackIndex = -1
             listOf("shengyu_library", "shengyu_playback", "shengyu_settings").forEach { restorePreferences(it, prefs.getJSONObject(it)) }
@@ -2652,7 +2652,7 @@ class MainActivity : ComponentActivity() {
                 if (remaining <= 0L) {
                     sleepTimerRunnable = null
                     sleepTimerEndAt = 0L
-                    try { player?.pause() } catch (_: Exception) { }
+                    try { playbackService?.pausePlayback() } catch (_: Exception) { }
                     savePlaybackMemory()
                     if (currentScreen == "home" || currentScreen == "script" || currentScreen == "tracklist") {
                         if (showScript) loadScript() else renderHome()
