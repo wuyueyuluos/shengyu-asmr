@@ -144,21 +144,19 @@ class MainActivity : ComponentActivity() {
             .putLong("library_scroll_y", libraryScrollY.toLong()).apply()
     }
 
-    private fun decodeScaledArtwork(uri: Uri, maxDimension: Int): Bitmap? {
+    private fun decodeLibraryThumbnail(uri: Uri): Bitmap? {
         val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
         contentResolver.openInputStream(uri)?.use { BitmapFactory.decodeStream(it, null, bounds) }
         if (bounds.outWidth <= 0 || bounds.outHeight <= 0) return null
         var sample = 1
-        while (bounds.outWidth / sample > maxDimension || bounds.outHeight / sample > maxDimension) sample *= 2
-        return contentResolver.openInputStream(uri)?.use { stream ->
-            BitmapFactory.decodeStream(stream, null, BitmapFactory.Options().apply {
+        while (bounds.outWidth / sample > 400 || bounds.outHeight / sample > 400) sample *= 2
+        return contentResolver.openInputStream(uri)?.use {
+            BitmapFactory.decodeStream(it, null, BitmapFactory.Options().apply {
                 inSampleSize = sample
                 inPreferredConfig = Bitmap.Config.RGB_565
             })
         }
     }
-
-    private fun decodeLibraryThumbnail(uri: Uri): Bitmap? = decodeScaledArtwork(uri, 400)
     private val progressHandler = Handler(Looper.getMainLooper())
     private val timerHandler = Handler(Looper.getMainLooper())
     private var sleepTimerEndAt = 0L
@@ -583,7 +581,7 @@ class MainActivity : ComponentActivity() {
         if (artworks.isNotEmpty()) {
             try {
                 contentResolver.openInputStream(artworks[currentArt % artworks.size])?.use {
-                    val bitmap = decodeScaledArtwork(artworks[currentArt % artworks.size], 1200)
+                    val bitmap = BitmapFactory.decodeStream(it)
                     if (bitmap != null) {
                         art.setImageBitmap(bitmap)
                         artFrame.background = android.graphics.drawable.GradientDrawable().apply {
@@ -1814,7 +1812,7 @@ class MainActivity : ComponentActivity() {
         fun displayImage() {
             try {
                 contentResolver.openInputStream(artworks[index])?.use {
-                    image.setImageBitmap(decodeScaledArtwork(artworks[index], 1600))
+                    image.setImageBitmap(BitmapFactory.decodeStream(it))
                 }
             } catch (_: Exception) { image.setImageDrawable(null) }
             image.post {
@@ -1859,7 +1857,7 @@ class MainActivity : ComponentActivity() {
                 Thread {
                     val bitmap = try {
                         contentResolver.openInputStream(uri)?.use { stream ->
-                            decodeScaledArtwork(uri, 320)
+                            BitmapFactory.decodeStream(stream, null, BitmapFactory.Options().apply { inSampleSize = 4 })
                         }
                     } catch (_: Exception) { null }
                     runOnUiThread { if (bitmap != null && !dialog.isShowing.not()) thumb.setImageBitmap(bitmap) }
