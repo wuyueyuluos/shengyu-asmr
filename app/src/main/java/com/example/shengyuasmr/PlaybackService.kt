@@ -65,6 +65,7 @@ class PlaybackService : Service() {
     private var audioFocusRequest: AudioFocusRequest? = null
     private var hasAudioFocus = false
     private var resumeOnFocusGain = false
+    private var shouldStartWhenPrepared = true
 
     private val audioFocusChangeListener = AudioManager.OnAudioFocusChangeListener { change ->
         when (change) {
@@ -149,6 +150,7 @@ class PlaybackService : Service() {
         releasePlayerOnly()
         currentIndex = index
         lastPosition = startAt.coerceAtLeast(0)
+        shouldStartWhenPrepared = true
         val created = MediaPlayer()
         player = created
         try {
@@ -170,6 +172,12 @@ class PlaybackService : Service() {
                 if (player !== prepared) return@setOnPreparedListener
                 try {
                     if (startAt > 0) prepared.seekTo(startAt.coerceAtMost(prepared.duration))
+                    if (!shouldStartWhenPrepared) {
+                        updatePlaybackState(false)
+                        updateNotification(currentArtIndex)
+                        playbackListener?.onPlaybackStateChanged(false)
+                        return@setOnPreparedListener
+                    }
                     if (!requestAudioFocus()) {
                         releasePlayerOnly()
                         updatePlaybackState(false)
@@ -229,6 +237,7 @@ class PlaybackService : Service() {
     }
 
     private fun pauseInternal(abandonFocus: Boolean) {
+        shouldStartWhenPrepared = false
         try {
             player?.pause()
             lastPosition = player?.currentPosition ?: lastPosition
@@ -240,6 +249,7 @@ class PlaybackService : Service() {
     }
 
     fun resumePlayback() {
+        shouldStartWhenPrepared = true
         try {
             if (!requestAudioFocus()) return
             if (player == null && currentIndex in queue.indices) {
