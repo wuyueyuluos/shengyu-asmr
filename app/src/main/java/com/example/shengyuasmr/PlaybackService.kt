@@ -154,6 +154,7 @@ class PlaybackService : Service() {
         try {
             created.setDataSource(this, queue[index].uri)
             created.setOnCompletionListener {
+                if (player !== created) return@setOnCompletionListener
                 if (currentIndex < queue.lastIndex) skipToNext()
                 else {
                     lastPosition = 0
@@ -164,19 +165,48 @@ class PlaybackService : Service() {
                     playbackListener?.onPlaybackStateChanged(false)
                 }
             }
-            created.prepare()
-            if (startAt > 0) created.seekTo(startAt.coerceAtMost(created.duration))
-            if (!requestAudioFocus()) {
-                releasePlayerOnly()
-                updatePlaybackState(false)
-                updateNotification(currentArtIndex)
-                return null
+            created.setOnPreparedListener { prepared ->
+                // Ignore callbacks from a player that was superseded while preparing.
+                if (player !== prepared) return@setOnPreparedListener
+                try {
+                    if (startAt > 0) prepared.seekTo(startAt.coerceAtMost(prepared.duration))
+                    if (!requestAudioFocus()) {
+                        releasePlayerOnly()
+                        updatePlaybackState(false)
+                        updateNotification(currentArtIndex)
+                        playbackListener?.onPlaybackStateChanged(false)
+                        return@setOnPreparedListener
+                    }
+                    prepared.start()
+                    lastPosition = 0
+                    updateMediaMetadata(currentArtIndex)
+                    updatePlaybackState(true)
+                    updateNotification(currentArtIndex)
+                    playbackListener?.onTrackChanged(currentIndex, true)
+                    playbackListener?.onPlaybackStateChanged(true)
+                } catch (_: Exception) {
+                    if (player === prepared) releasePlayerOnly()
+                    resumeOnFocusGain = false
+                    abandonAudioFocus()
+                    updatePlaybackState(false)
+                    updateNotification(currentArtIndex)
+                    playbackListener?.onPlaybackStateChanged(false)
+                }
             }
-            created.start()
-            updateMediaMetadata(currentArtIndex)
-            updatePlaybackState(true)
+            created.setOnErrorListener { failed, _, _ ->
+                if (player === failed) {
+                    releasePlayerOnly()
+                    resumeOnFocusGain = false
+                    abandonAudioFocus()
+                    updatePlaybackState(false)
+                    updateNotification(currentArtIndex)
+                    playbackListener?.onPlaybackStateChanged(false)
+                }
+                true
+            }
+            created.prepareAsync()
+            updatePlaybackState(false, PlaybackStateCompat.STATE_CONNECTING)
             updateNotification(currentArtIndex)
-            playbackListener?.onTrackChanged(currentIndex, true)
             return created
         } catch (error: Exception) {
             releasePlayerOnly()
