@@ -9,7 +9,6 @@ import android.content.Intent
 import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.IntentFilter
-import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.media.AudioAttributes
 import android.media.AudioFocusRequest
@@ -67,10 +66,6 @@ class PlaybackService : Service() {
     private var hasAudioFocus = false
     private var resumeOnFocusGain = false
     private var shouldStartWhenPrepared = true
-    // Tracks MediaPlayer readiness explicitly to avoid calling start/pause in PREPARING.
-    private var playerPrepared = false
-    private var cachedArtworkUri: Uri? = null
-    private var cachedArtworkBitmap: Bitmap? = null
 
     private val audioFocusChangeListener = AudioManager.OnAudioFocusChangeListener { change ->
         when (change) {
@@ -158,7 +153,6 @@ class PlaybackService : Service() {
         shouldStartWhenPrepared = true
         val created = MediaPlayer()
         player = created
-        playerPrepared = false
         try {
             created.setDataSource(this, queue[index].uri)
             created.setOnCompletionListener {
@@ -174,7 +168,6 @@ class PlaybackService : Service() {
                 }
             }
             created.setOnPreparedListener { prepared ->
-                if (player === prepared) playerPrepared = true
                 // Ignore callbacks from a player that was superseded while preparing.
                 if (player !== prepared) return@setOnPreparedListener
                 try {
@@ -245,14 +238,10 @@ class PlaybackService : Service() {
 
     private fun pauseInternal(abandonFocus: Boolean) {
         shouldStartWhenPrepared = false
-        // MediaPlayer.pause() is invalid while asynchronously preparing. In that state,
-        // the prepared callback will honor this false start intent and leave it paused.
-        if (playerPrepared) {
-            try {
-                player?.pause()
-                lastPosition = player?.currentPosition ?: lastPosition
-            } catch (_: Exception) { }
-        }
+        try {
+            player?.pause()
+            lastPosition = player?.currentPosition ?: lastPosition
+        } catch (_: Exception) { }
         if (abandonFocus) abandonAudioFocus()
         updatePlaybackState(false)
         updateNotification(currentArtIndex)
@@ -261,13 +250,6 @@ class PlaybackService : Service() {
 
     fun resumePlayback() {
         shouldStartWhenPrepared = true
-        // Do not issue start() until prepareAsync() has completed; the callback
-        // will start playback if this intent remains true.
-        if (player != null && !playerPrepared) {
-            updatePlaybackState(false, PlaybackStateCompat.STATE_CONNECTING)
-            updateNotification(currentArtIndex)
-            return
-        }
         try {
             if (!requestAudioFocus()) return
             if (player == null && currentIndex in queue.indices) {
@@ -337,31 +319,12 @@ class PlaybackService : Service() {
 
     fun isPlaying(): Boolean = try { player?.isPlaying == true } catch (_: Exception) { false }
 
-    private fun decodeArtwork(uri: Uri, maxDimension: Int): Bitmap? {
-        val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
-        contentResolver.openInputStream(uri)?.use { BitmapFactory.decodeStream(it, null, bounds) }
-        if (bounds.outWidth <= 0 || bounds.outHeight <= 0) return null
-        var sample = 1
-        while (bounds.outWidth / sample > maxDimension || bounds.outHeight / sample > maxDimension) sample *= 2
-        return contentResolver.openInputStream(uri)?.use { stream ->
-            BitmapFactory.decodeStream(stream, null, BitmapFactory.Options().apply {
-                inSampleSize = sample
-                inPreferredConfig = Bitmap.Config.RGB_565
-            })
-        }
-    }
-
-    private fun getCachedArtwork(uri: Uri): Bitmap? {
-        if (cachedArtworkUri == uri && cachedArtworkBitmap != null) return cachedArtworkBitmap
-        cachedArtworkBitmap = decodeArtwork(uri, 512)
-        cachedArtworkUri = uri
-        return cachedArtworkBitmap
-    }
-
     fun updateMediaMetadata(artIndex: Int = currentArtIndex) {
         currentArtIndex = artIndex.coerceAtLeast(0)
         val track = queue.getOrNull(currentIndex) ?: return
-        val bitmap = try { artworks.getOrNull(currentArtIndex)?.let { getCachedArtwork(it) } } catch (_: Exception) { null }
+        val bitmap = try {
+            artworks.getOrNull(currentArtIndex)?.let { contentResolver.openInputStream(it)?.use { stream -> BitmapFactory.decodeStream(stream) } }
+        } catch (_: Exception) { null }
         val builder = MediaMetadataCompat.Builder()
             .putString(MediaMetadataCompat.METADATA_KEY_TITLE, workName)
             .putString(MediaMetadataCompat.METADATA_KEY_ARTIST, track.name.substringBeforeLast('.'))
@@ -406,7 +369,7 @@ class PlaybackService : Service() {
             .setContentIntent(openApp)
             .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
             .setOnlyAlertOnce(true)
-                        .setLargeIcon(try { artworks.getOrNull(currentArtIndex)?.let { getCachedArtwork(it) } } catch (_: Exception) { null })
+            .setLargeIcon(try { artworks.getOrNull(currentArtIndex)?.let { contentResolver.openInputStream(it)?.use { stream -> BitmapFactory.decodeStream(stream) } } } catch (_: Exception) { null })
             .setOngoing(playing)
             .setShowWhen(false)
             .addAction(android.R.drawable.ic_media_previous, "上一首", serviceAction(actionPrevious, 7303))
@@ -471,8 +434,6 @@ class PlaybackService : Service() {
         workFolder = null
         workName = ""
         artworks = emptyList()
-        cachedArtworkBitmap = null
-        cachedArtworkUri = null
         mediaSession?.setMetadata(null)
         updatePlaybackState(false, PlaybackStateCompat.STATE_STOPPED)
         if (Build.VERSION.SDK_INT >= 24) stopForeground(STOP_FOREGROUND_REMOVE) else {
@@ -485,7 +446,6 @@ class PlaybackService : Service() {
     }
 
     private fun releasePlayerOnly() {
-        playerPrepared = false
         try { player?.setOnCompletionListener(null); player?.release() } catch (_: Exception) { }
         player = null
     }
@@ -503,8 +463,6 @@ class PlaybackService : Service() {
 
     override fun onDestroy() {
         releasePlayerOnly()
-        cachedArtworkBitmap = null
-        cachedArtworkUri = null
         resumeOnFocusGain = false
         abandonAudioFocus()
         try { unregisterReceiver(noisyReceiver) } catch (_: Exception) { }
