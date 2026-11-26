@@ -67,6 +67,8 @@ class PlaybackService : Service() {
     private var hasAudioFocus = false
     private var resumeOnFocusGain = false
     private var shouldStartWhenPrepared = true
+    // Tracks MediaPlayer readiness explicitly to avoid calling start/pause in PREPARING.
+    private var playerPrepared = false
     private var cachedArtworkUri: Uri? = null
     private var cachedArtworkBitmap: Bitmap? = null
 
@@ -156,6 +158,7 @@ class PlaybackService : Service() {
         shouldStartWhenPrepared = true
         val created = MediaPlayer()
         player = created
+        playerPrepared = false
         try {
             created.setDataSource(this, queue[index].uri)
             created.setOnCompletionListener {
@@ -171,6 +174,7 @@ class PlaybackService : Service() {
                 }
             }
             created.setOnPreparedListener { prepared ->
+                if (player === prepared) playerPrepared = true
                 // Ignore callbacks from a player that was superseded while preparing.
                 if (player !== prepared) return@setOnPreparedListener
                 try {
@@ -241,10 +245,14 @@ class PlaybackService : Service() {
 
     private fun pauseInternal(abandonFocus: Boolean) {
         shouldStartWhenPrepared = false
-        try {
-            player?.pause()
-            lastPosition = player?.currentPosition ?: lastPosition
-        } catch (_: Exception) { }
+        // MediaPlayer.pause() is invalid while asynchronously preparing. In that state,
+        // the prepared callback will honor this false start intent and leave it paused.
+        if (playerPrepared) {
+            try {
+                player?.pause()
+                lastPosition = player?.currentPosition ?: lastPosition
+            } catch (_: Exception) { }
+        }
         if (abandonFocus) abandonAudioFocus()
         updatePlaybackState(false)
         updateNotification(currentArtIndex)
@@ -253,6 +261,13 @@ class PlaybackService : Service() {
 
     fun resumePlayback() {
         shouldStartWhenPrepared = true
+        // Do not issue start() until prepareAsync() has completed; the callback
+        // will start playback if this intent remains true.
+        if (player != null && !playerPrepared) {
+            updatePlaybackState(false, PlaybackStateCompat.STATE_CONNECTING)
+            updateNotification(currentArtIndex)
+            return
+        }
         try {
             if (!requestAudioFocus()) return
             if (player == null && currentIndex in queue.indices) {
@@ -470,6 +485,7 @@ class PlaybackService : Service() {
     }
 
     private fun releasePlayerOnly() {
+        playerPrepared = false
         try { player?.setOnCompletionListener(null); player?.release() } catch (_: Exception) { }
         player = null
     }
