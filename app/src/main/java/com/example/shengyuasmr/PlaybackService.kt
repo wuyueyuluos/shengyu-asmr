@@ -66,6 +66,8 @@ class PlaybackService : Service() {
     private var hasAudioFocus = false
     private var resumeOnFocusGain = false
     private var shouldStartWhenPrepared = true
+    private var cachedArtworkUri: Uri? = null
+    private var cachedArtworkBitmap: Bitmap? = null
 
     private val audioFocusChangeListener = AudioManager.OnAudioFocusChangeListener { change ->
         when (change) {
@@ -319,12 +321,31 @@ class PlaybackService : Service() {
 
     fun isPlaying(): Boolean = try { player?.isPlaying == true } catch (_: Exception) { false }
 
+    private fun decodeArtwork(uri: Uri, maxDimension: Int): Bitmap? {
+        val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+        contentResolver.openInputStream(uri)?.use { BitmapFactory.decodeStream(it, null, bounds) }
+        if (bounds.outWidth <= 0 || bounds.outHeight <= 0) return null
+        var sample = 1
+        while (bounds.outWidth / sample > maxDimension || bounds.outHeight / sample > maxDimension) sample *= 2
+        return contentResolver.openInputStream(uri)?.use { stream ->
+            BitmapFactory.decodeStream(stream, null, BitmapFactory.Options().apply {
+                inSampleSize = sample
+                inPreferredConfig = Bitmap.Config.RGB_565
+            })
+        }
+    }
+
+    private fun getCachedArtwork(uri: Uri): Bitmap? {
+        if (cachedArtworkUri == uri && cachedArtworkBitmap != null) return cachedArtworkBitmap
+        cachedArtworkBitmap = decodeArtwork(uri, 512)
+        cachedArtworkUri = uri
+        return cachedArtworkBitmap
+    }
+
     fun updateMediaMetadata(artIndex: Int = currentArtIndex) {
         currentArtIndex = artIndex.coerceAtLeast(0)
         val track = queue.getOrNull(currentIndex) ?: return
-        val bitmap = try {
-            artworks.getOrNull(currentArtIndex)?.let { contentResolver.openInputStream(it)?.use { stream -> BitmapFactory.decodeStream(stream) } }
-        } catch (_: Exception) { null }
+        val bitmap = try { artworks.getOrNull(currentArtIndex)?.let { getCachedArtwork(it) } } catch (_: Exception) { null }
         val builder = MediaMetadataCompat.Builder()
             .putString(MediaMetadataCompat.METADATA_KEY_TITLE, workName)
             .putString(MediaMetadataCompat.METADATA_KEY_ARTIST, track.name.substringBeforeLast('.'))
@@ -369,7 +390,7 @@ class PlaybackService : Service() {
             .setContentIntent(openApp)
             .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
             .setOnlyAlertOnce(true)
-            .setLargeIcon(try { artworks.getOrNull(currentArtIndex)?.let { contentResolver.openInputStream(it)?.use { stream -> BitmapFactory.decodeStream(stream) } } } catch (_: Exception) { null })
+                        .setLargeIcon(try { artworks.getOrNull(currentArtIndex)?.let { getCachedArtwork(it) } } catch (_: Exception) { null })
             .setOngoing(playing)
             .setShowWhen(false)
             .addAction(android.R.drawable.ic_media_previous, "上一首", serviceAction(actionPrevious, 7303))
@@ -434,6 +455,8 @@ class PlaybackService : Service() {
         workFolder = null
         workName = ""
         artworks = emptyList()
+        cachedArtworkBitmap = null
+        cachedArtworkUri = null
         mediaSession?.setMetadata(null)
         updatePlaybackState(false, PlaybackStateCompat.STATE_STOPPED)
         if (Build.VERSION.SDK_INT >= 24) stopForeground(STOP_FOREGROUND_REMOVE) else {
@@ -463,6 +486,8 @@ class PlaybackService : Service() {
 
     override fun onDestroy() {
         releasePlayerOnly()
+        cachedArtworkBitmap = null
+        cachedArtworkUri = null
         resumeOnFocusGain = false
         abandonAudioFocus()
         try { unregisterReceiver(noisyReceiver) } catch (_: Exception) { }
