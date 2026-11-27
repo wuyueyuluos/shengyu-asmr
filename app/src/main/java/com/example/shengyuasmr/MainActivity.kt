@@ -2077,7 +2077,7 @@ class MainActivity : ComponentActivity() {
                     try {
                         val result = DlsiteMetadataLookup.lookup(id)
                         runOnUiThread {
-                            val details = "编号：" + result.productId + "\n\n标题：" + (result.title.ifBlank { "未读取到标题" }) + "\n\n封面地址：" + (result.coverUrl.ifBlank { "未读取到封面" }) + "\n\n网页：" + result.pageUrl
+                            val details = "编号：" + result.productId + "\n\n标题：" + (result.title.ifBlank { "未读取到标题" }) + "\n\n封面地址：" + (result.coverUrl.ifBlank { "未读取到封面" }) + "\n\nCV：" + result.cv.joinToString("、").ifBlank { "未读取到" } + "\n\n社团：" + result.circle.ifBlank { "未读取到" } + "\n\n标签：" + result.tags.joinToString("、").ifBlank { "未读取到" } + "\n\n发售日期：" + result.releaseDate.ifBlank { "未读取到" } + "\n\n简介：" + result.description.ifBlank { "未读取到" } + "\n\n网页：" + result.pageUrl
                             android.app.AlertDialog.Builder(this).setTitle("查询结果")
                                 .setMessage(details)
                                 .setPositiveButton("打开作品网页") { _, _ ->
