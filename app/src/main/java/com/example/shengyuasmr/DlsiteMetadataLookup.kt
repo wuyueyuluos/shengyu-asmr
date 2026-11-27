@@ -53,14 +53,20 @@ object DlsiteMetadataLookup {
                     .distinct()
                     .toList()
 
-            // DLsite's visible labels are 声優 and サークル. Read the links
-            // immediately following each label instead of relying on table markup.
-            fun labeledLinks(label: String, nextLabel: String): List<String> {
-                val start = Regex(Regex.escape(label), RegexOption.IGNORE_CASE).find(html)?.range?.last?.plus(1) ?: return emptyList()
-                val tail = html.substring(start, (start + 7000).coerceAtMost(html.length))
-                val end = Regex(nextLabel, RegexOption.IGNORE_CASE).find(tail)?.range?.first ?: tail.length
-                return links(tail.substring(0, end))
+            // Read metadata from the actual information row. Searching the whole page
+            // for a label is unsafe: promotional banners can contain unrelated text.
+            fun rowFor(label: String): String {
+                val rows = Regex("""<(?:tr|li|div)\\b[^>]*>(.*?)</(?:tr|li|div)>""", htmlFlags)
+                    .findAll(html)
+                    .map { it.groupValues[1] }
+                return rows.firstOrNull { row ->
+                    val plain = row.htmlText()
+                    plain.startsWith(label) || plain.contains(Regex("""(?:^|\\s)$label(?:\\s|$)"""))
+                }.orEmpty()
             }
+
+            fun rowLinks(row: String): List<String> = links(row)
+                .filterNot { it.matches(Regex("""(?i).*(?:まで|セール|割引|%OFF).*""")) }
 
             val title = meta("og:title").ifBlank {
                 Regex("""<title[^>]*>(.*?)</title>""", htmlFlags)
@@ -68,26 +74,39 @@ object DlsiteMetadataLookup {
             }
             val cover = meta("og:image")
 
+            // Keep the already-working 声優 extraction behavior.
             val cv = labeledLinks("声優", "サークル|作品形式|販売日|シナリオ")
                 .ifEmpty { labeledLinks("CV", "サークル|作品形式|販売日") }
 
-            val circle = labeledLinks("サークル", "声優|作品形式|販売日|シナリオ")
-                .firstOrNull().orEmpty()
+            // Circle is read only from the row whose label is サークル.
+            val circleRow = rowFor("サークル")
+            val circle = rowLinks(circleRow).firstOrNull().orEmpty()
 
-            // The tag chips are rendered as anchors whose visible text starts with #.
-            // Strip the marker and keep each tag as an individual item.
-            val hashTags = Regex("""<a\b[^>]*>(.*?)</a>""", htmlFlags)
+            // DLsite genre chips may be individual links and may render as "# tag"
+            // rather than "#tag". Prefer the ジャンル row; fall back to genre-class
+            // containers and finally to hash-prefixed anchors.
+            val genreRow = rowFor("ジャンル")
+            val genreFragment = Regex(
+                """<(?:div|ul|section)[^>]*class=["'][^"']*(?:main_genre|work_genre|genre)[^"']*["'][^>]*>(.*?)</(?:div|ul|section)>""",
+                htmlFlags
+            ).find(html)?.groupValues?.getOrNull(1).orEmpty()
+
+            fun cleanTag(value: String): String = value
+                .replace(Regex("""^#\\s*"""), "")
+                .trim()
+                .removeSuffix(">").trim()
+
+            val rowTags = rowLinks(genreRow).map(::cleanTag)
+            val containerTags = rowLinks(genreFragment).map(::cleanTag)
+            val hashTags = Regex("""<a\\b[^>]*>(.*?)</a>""", htmlFlags)
                 .findAll(html)
-                .map { it.groupValues[1].htmlText() }
-                .filter { it.startsWith("#") }
-                .map { it.removePrefix("#").trim() }
-                .filter { it.isNotBlank() && it.length < 100 }
-                .distinct()
+                .map { cleanTag(it.groupValues[1].htmlText()) }
+                .filter { it != it.replace(Regex("""^#"""), "") }
                 .toList()
 
-            val genreFragment = Regex("""<(?:div|ul|td)[^>]*class=["'][^"']*(?:main_genre|work_genre|genre)[^"']*["'][^>]*>(.*?)</(?:div|ul|td)>""", htmlFlags)
-                .find(html)?.groupValues?.getOrNull(1).orEmpty()
-            val tags = hashTags.ifEmpty { links(genreFragment) }
+            val tags = (rowTags.ifEmpty { containerTags.ifEmpty { hashTags } })
+                .filter { it.isNotBlank() && it.length < 100 }
+                .distinct()
 
             return DlsiteMetadata(id, title, cover, cv, circle, tags, productUrl(id))
         } finally {
