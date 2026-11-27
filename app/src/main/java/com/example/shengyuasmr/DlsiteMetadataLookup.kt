@@ -74,6 +74,13 @@ object DlsiteMetadataLookup {
             }
             val cover = meta("og:image")
 
+            fun labeledLinks(label: String, nextLabel: String): List<String> {
+                val start = Regex(Regex.escape(label), RegexOption.IGNORE_CASE).find(html)?.range?.last?.plus(1) ?: return emptyList()
+                val tail = html.substring(start, (start + 7000).coerceAtMost(html.length))
+                val end = Regex(nextLabel, RegexOption.IGNORE_CASE).find(tail)?.range?.first ?: tail.length
+                return links(tail.substring(0, end))
+            }
+
             // Keep the already-working 声優 extraction behavior.
             val cv = labeledLinks("声優", "サークル|作品形式|販売日|シナリオ")
                 .ifEmpty { labeledLinks("CV", "サークル|作品形式|販売日") }
