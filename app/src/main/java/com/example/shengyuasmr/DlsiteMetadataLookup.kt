@@ -33,7 +33,7 @@ object DlsiteMetadataLookup {
                 return patterns.firstNotNullOfOrNull { it.find(html)?.groupValues?.getOrNull(1) }?.htmlDecode()?.trim().orEmpty()
             }
             val title = meta("og:title").ifBlank {
-                Regex("""<title[^>]*>(.*?)</title>""", RegexOption.IGNORE_CASE or RegexOption.DOT_MATCHES_ALL)
+                Regex("""<title[^>]*>(.*?)</title>""", setOf(RegexOption.IGNORE_CASE, RegexOption.DOT_MATCHES_ALL))
                     .find(html)?.groupValues?.getOrNull(1)?.htmlDecode()?.trim().orEmpty()
             }
             val cover = meta("og:image")
