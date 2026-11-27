@@ -2094,7 +2094,7 @@ class MainActivity : ComponentActivity() {
                 }.start()
             }
         }
-        dialog.showStyled()
+        dialog.show()
     }
 
     private fun backupPreferences(name: String): JSONObject {
