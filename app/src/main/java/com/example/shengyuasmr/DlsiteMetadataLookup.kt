@@ -14,7 +14,7 @@ data class DlsiteMetadata(
 )
 
 object DlsiteMetadataLookup {
-    private val productIdRegex = Regex("(?i)\\bRJ\\d{6,8}\\b")
+    private val productIdRegex = Regex("(?i)\bRJ\\d{6,8}\b")
     private val htmlFlags = setOf(RegexOption.IGNORE_CASE, RegexOption.DOT_MATCHES_ALL)
 
     fun extractProductId(text: String): String? = productIdRegex.find(text)?.value?.uppercase()
@@ -56,12 +56,12 @@ object DlsiteMetadataLookup {
             // Read metadata from the actual information row. Searching the whole page
             // for a label is unsafe: promotional banners can contain unrelated text.
             fun rowFor(label: String): String {
-                val rows = Regex("""<(?:tr|li|div)\\b[^>]*>(.*?)</(?:tr|li|div)>""", htmlFlags)
+                val rows = Regex("""<(?:tr|li|div)\b[^>]*>(.*?)</(?:tr|li|div)>""", htmlFlags)
                     .findAll(html)
                     .map { it.groupValues[1] }
                 return rows.firstOrNull { row ->
                     val plain = row.htmlText()
-                    plain.startsWith(label) || plain.contains(Regex("""(?:^|\\s)$label(?:\\s|$)"""))
+                    plain.startsWith(label) || plain.contains(Regex("""(?:^|\s)$label(?:\s|$)"""))
                 }.orEmpty()
             }
 
@@ -99,13 +99,13 @@ object DlsiteMetadataLookup {
             ).find(html)?.groupValues?.getOrNull(1).orEmpty()
 
             fun cleanTag(value: String): String = value
-                .replace(Regex("""^#\\s*"""), "")
+                .replace(Regex("""^#\s*"""), "")
                 .trim()
                 .removeSuffix(">").trim()
 
             val rowTags = rowLinks(genreRow).map(::cleanTag)
             val containerTags = rowLinks(genreFragment).map(::cleanTag)
-            val hashTags = Regex("""<a\\b[^>]*>(.*?)</a>""", htmlFlags)
+            val hashTags = Regex("""<a\b[^>]*>(.*?)</a>""", htmlFlags)
                 .findAll(html)
                 .map { cleanTag(it.groupValues[1].htmlText()) }
                 .filter { it != it.replace(Regex("""^#"""), "") }
