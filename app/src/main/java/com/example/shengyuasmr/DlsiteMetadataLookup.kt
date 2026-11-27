@@ -10,13 +10,12 @@ data class DlsiteMetadata(
     val cv: List<String>,
     val circle: String,
     val tags: List<String>,
-    val releaseDate: String,
-    val description: String,
     val pageUrl: String
 )
 
 object DlsiteMetadataLookup {
     private val productIdRegex = Regex("(?i)\\bRJ\\d{6,8}\\b")
+    private val htmlFlags = setOf(RegexOption.IGNORE_CASE, RegexOption.DOT_MATCHES_ALL)
 
     fun extractProductId(text: String): String? = productIdRegex.find(text)?.value?.uppercase()
 
@@ -36,6 +35,7 @@ object DlsiteMetadataLookup {
         connection.setRequestProperty("Accept", "text/html,application/xhtml+xml")
         try {
             val html = connection.inputStream.bufferedReader(Charsets.UTF_8).use { it.readText() }
+
             fun meta(key: String, attribute: String = "property"): String {
                 val patterns = listOf(
                     Regex("""<meta[^>]+$attribute=["']$key["'][^>]+content=["']([^"']*)["']""", RegexOption.IGNORE_CASE),
@@ -44,49 +44,59 @@ object DlsiteMetadataLookup {
                 return patterns.firstNotNullOfOrNull { it.find(html)?.groupValues?.getOrNull(1) }
                     ?.htmlDecode()?.trim().orEmpty()
             }
-            fun rowValue(label: Regex): String {
-                val row = Regex("""<tr[^>]*>\\s*<th[^>]*>.*?</th>\\s*<td[^>]*>(.*?)</td>\\s*</tr>""",
-                    setOf(RegexOption.IGNORE_CASE, RegexOption.DOT_MATCHES_ALL))
-                for (match in row.findAll(html)) {
-                    val fullRow = match.value
-                    val header = Regex("""<th[^>]*>(.*?)</th>""", setOf(RegexOption.IGNORE_CASE, RegexOption.DOT_MATCHES_ALL))
-                        .find(fullRow)?.groupValues?.getOrNull(1)?.htmlText().orEmpty()
-                    if (label.containsMatchIn(header)) return match.groupValues[1].htmlText()
-                }
-                return ""
-            }
+
             fun links(fragment: String): List<String> =
-                Regex("""<a[^>]*>(.*?)</a>""", setOf(RegexOption.IGNORE_CASE, RegexOption.DOT_MATCHES_ALL))
-                    .findAll(fragment).map { it.groupValues[1].htmlText() }
-                    .filter { it.isNotBlank() && it.length < 100 }.distinct().toList()
+                Regex("""<a\b[^>]*>(.*?)</a>""", htmlFlags)
+                    .findAll(fragment)
+                    .map { it.groupValues[1].htmlText() }
+                    .filter { it.isNotBlank() && it.length < 100 }
+                    .distinct()
+                    .toList()
+
+            // DLsite's visible labels are 声優 and サークル. Read the links
+            // immediately following each label instead of relying on table markup.
+            fun labeledLinks(label: String, nextLabel: String): List<String> {
+                val start = Regex(Regex.escape(label), RegexOption.IGNORE_CASE).find(html)?.range?.last?.plus(1) ?: return emptyList()
+                val tail = html.substring(start, (start + 7000).coerceAtMost(html.length))
+                val end = Regex(nextLabel, RegexOption.IGNORE_CASE).find(tail)?.range?.first ?: tail.length
+                return links(tail.substring(0, end))
+            }
 
             val title = meta("og:title").ifBlank {
-                Regex("""<title[^>]*>(.*?)</title>""", setOf(RegexOption.IGNORE_CASE, RegexOption.DOT_MATCHES_ALL))
+                Regex("""<title[^>]*>(.*?)</title>""", htmlFlags)
                     .find(html)?.groupValues?.getOrNull(1)?.htmlText().orEmpty()
             }
             val cover = meta("og:image")
-            val cv = links(rowValue(Regex("声優|CV|ボイス|Voice Actor", RegexOption.IGNORE_CASE)))
-            val makerSection = Regex("""id=["']work_maker["']""", RegexOption.IGNORE_CASE).find(html)
-                ?.let { html.substring(it.range.first, (it.range.first + 12000).coerceAtMost(html.length)) }.orEmpty()
-            val circle = Regex("""class=["'][^"']*maker_name[^"']*["'][^>]*>\\s*<a[^>]*>(.*?)</a>""",
-                setOf(RegexOption.IGNORE_CASE, RegexOption.DOT_MATCHES_ALL))
-                .find(makerSection)?.groupValues?.getOrNull(1)?.htmlText().orEmpty()
-                .ifBlank { rowValue(Regex("サークル名|制作サークル|Circle", RegexOption.IGNORE_CASE)) }
-            val genreFragment = Regex("""<(?:div|ul|td)[^>]*class=["'][^"']*(?:main_genre|work_genre|genre)[^"']*["'][^>]*>(.*?)</(?:div|ul|td)>""",
-                setOf(RegexOption.IGNORE_CASE, RegexOption.DOT_MATCHES_ALL)).find(html)?.groupValues?.getOrNull(1).orEmpty()
-            val tags = links(genreFragment).ifEmpty {
-                meta("keywords", "name").split(',', '、', '|').map { it.trim() }.filter { it.isNotBlank() }
-            }.distinct()
-            val date = rowValue(Regex("販売日|販売開始日|発売日|発售日|Release Date", RegexOption.IGNORE_CASE))
-            val description = meta("og:description").ifBlank { meta("description", "name") }
-            return DlsiteMetadata(id, title, cover, cv, circle, tags, date, description, productUrl(id))
+
+            val cv = labeledLinks("声優", "サークル|作品形式|販売日|シナリオ")
+                .ifEmpty { labeledLinks("CV", "サークル|作品形式|販売日") }
+
+            val circle = labeledLinks("サークル", "声優|作品形式|販売日|シナリオ")
+                .firstOrNull().orEmpty()
+
+            // The tag chips are rendered as anchors whose visible text starts with #.
+            // Strip the marker and keep each tag as an individual item.
+            val hashTags = Regex("""<a\b[^>]*>(.*?)</a>""", htmlFlags)
+                .findAll(html)
+                .map { it.groupValues[1].htmlText() }
+                .filter { it.startsWith("#") }
+                .map { it.removePrefix("#").trim() }
+                .filter { it.isNotBlank() && it.length < 100 }
+                .distinct()
+                .toList()
+
+            val genreFragment = Regex("""<(?:div|ul|td)[^>]*class=["'][^"']*(?:main_genre|work_genre|genre)[^"']*["'][^>]*>(.*?)</(?:div|ul|td)>""", htmlFlags)
+                .find(html)?.groupValues?.getOrNull(1).orEmpty()
+            val tags = hashTags.ifEmpty { links(genreFragment) }
+
+            return DlsiteMetadata(id, title, cover, cv, circle, tags, productUrl(id))
         } finally {
             connection.disconnect()
         }
     }
 
     private fun String.htmlText(): String = replace(Regex("""<[^>]+>"""), " ")
-        .htmlDecode().replace(Regex("""\\s+"""), " ").trim()
+        .htmlDecode().replace(Regex("""\s+"""), " ").trim()
 
     private fun String.htmlDecode(): String = replace("&amp;", "&").replace("&quot;", "\"")
         .replace("&#39;", "'").replace("&lt;", "<").replace("&gt;", ">")
