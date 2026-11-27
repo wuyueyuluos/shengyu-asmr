@@ -2029,7 +2029,8 @@ class MainActivity : ComponentActivity() {
                 "导入方式：${if (mode == "auto") "自动导入新作品" else "扫描后手动选择"}",
                 "扫描作品库",
                 "备份作品库",
-                "恢复作品库"
+                "恢复作品库",
+                "DLsite 资料查询测试"
             )) { dialog, which ->
                 when (which) {
                     0 -> { dialog.dismiss(); pickingLibraryRoot = true; pickFolder.launch(root) }
@@ -2043,8 +2044,57 @@ class MainActivity : ComponentActivity() {
                     2 -> { dialog.dismiss(); if (root == null) { pickingLibraryRoot = true; pickFolder.launch(null) } else scanLibraryRoot(root) }
                     3 -> { dialog.dismiss(); exportBackupFile.launch("shengyu-library-backup.json") }
                     4 -> { dialog.dismiss(); importBackupFile.launch(arrayOf("application/json", "text/json", "text/plain")) }
+                    5 -> { dialog.dismiss(); showDlsiteLookupTest() }
                 }
             }.setNegativeButton("关闭", null).showStyled()
+    }
+
+
+    private fun showDlsiteLookupTest() {
+        val input = EditText(this).apply {
+            hint = "输入 RJ 编号，例如 RJ01234567"
+            setSingleLine(true)
+            setTextColor(themeColor(0xFF51435F.toInt()))
+            setHintTextColor(themeColor(0xFF8A7E95.toInt()))
+        }
+        val dialog = android.app.AlertDialog.Builder(this)
+            .setTitle("DLsite 资料查询测试")
+            .setMessage("第一阶段仅测试编号识别、网页访问及标题/封面信息读取，不会修改作品库。")
+            .setView(input)
+            .setNegativeButton("取消", null)
+            .setPositiveButton("查询", null)
+            .create()
+        dialog.setOnShowListener {
+            dialog.getButton(android.app.AlertDialog.BUTTON_POSITIVE).setOnClickListener {
+                val id = DlsiteMetadataLookup.extractProductId(input.text.toString())
+                if (id == null) {
+                    input.error = "请输入有效的 RJ 编号"
+                    return@setOnClickListener
+                }
+                dialog.dismiss()
+                Toast.makeText(this, "正在查询 " + id + "…", Toast.LENGTH_SHORT).show()
+                Thread {
+                    try {
+                        val result = DlsiteMetadataLookup.lookup(id)
+                        runOnUiThread {
+                            val details = "编号：" + result.productId + "\n\n标题：" + result.title.ifBlank { "未读取到标题" } + "\n\nCV（声優）：" + result.cv.joinToString("、").ifBlank { "未读取到" } + "\n\n社团（サークル）：" + result.circle.ifBlank { "未读取到" } + "\n\n标签：" + result.tags.joinToString("、") { "#$it" }.ifBlank { "未读取到" } + "\n\n详细资料请打开 DLsite 作品网页查看。";
+                            android.app.AlertDialog.Builder(this).setTitle("查询结果")
+                                .setMessage(details)
+                                .setPositiveButton("打开作品网页") { _, _ ->
+                                    startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(result.pageUrl)))
+                                }.setNegativeButton("关闭", null).showStyled()
+                        }
+                    } catch (e: Exception) {
+                        runOnUiThread {
+                            android.app.AlertDialog.Builder(this).setTitle("查询失败")
+                                .setMessage(e.message ?: "网络或网页解析错误。")
+                                .setPositiveButton("关闭", null).showStyled()
+                        }
+                    }
+                }.start()
+            }
+        }
+        dialog.show()
     }
 
     private fun backupPreferences(name: String): JSONObject {
