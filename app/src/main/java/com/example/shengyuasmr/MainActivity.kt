@@ -134,6 +134,7 @@ class MainActivity : ComponentActivity() {
     private var libraryScrollView: ScrollView? = null
     private val pdfRenderHandler = Handler(Looper.getMainLooper())
     private var pdfReaderView: PdfReaderView? = null
+    private var playerLayoutListener: View.OnLayoutChangeListener? = null
 
     private fun saveLibraryScrollPosition() {
         // Keep a direct reference: the library view may already be detached while the
@@ -630,6 +631,29 @@ class MainActivity : ComponentActivity() {
             }
         }
         renderBottomControls()
+        // Recalculate the artwork viewport whenever the app window is resized.
+        // Keep the progress bar and all five transport controls visible in compact/freeform windows.
+        playerLayoutListener?.let { content.removeOnLayoutChangeListener(it) }
+        val resizeListener = View.OnLayoutChangeListener { _, _, _, _, _, _, _, _, _ ->
+            content.post {
+                if (currentScreen != "home" || content.childCount < 4) return@post
+                val headingHeight = content.getChildAt(0).measuredHeight
+                val progressHeight = content.getChildAt(2).measuredHeight
+                val controlsHeight = content.getChildAt(3).measuredHeight
+                val fixedHeight = headingHeight + progressHeight + controlsHeight +
+                    dp(8) + dp(18) + dp(8)
+                val available = (content.height - fixedHeight).coerceAtLeast(dp(96))
+                val params = artFrame.layoutParams as LinearLayout.LayoutParams
+                val targetHeight = available.coerceAtMost(dp(420))
+                if (params.height != targetHeight) {
+                    params.height = targetHeight
+                    artFrame.layoutParams = params
+                }
+            }
+        }
+        playerLayoutListener = resizeListener
+        content.addOnLayoutChangeListener(resizeListener)
+        content.post { content.requestLayout() }
     }
 
     private fun artworkTint(bitmap: Bitmap): Int {
